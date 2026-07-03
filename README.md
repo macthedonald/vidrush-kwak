@@ -9,18 +9,18 @@ A self-hosted vidrush.ai-style YouTube content factory that runs entirely in you
 2. Outlier ranking (views vs channel average) + AI topic suggestions from real competitor data.
 3. Creative brief generator (4-pillar prompt), title/description/tag optimizer, AI thumbnail lab (reference-cloning or from scratch).
 
-**Storyboard Studio (new — click "🎬 Storyboard Studio" on any topic)**
-1. **📝 Script** — writes the complete word-for-word narration (hook, curiosity loops, retention hooks, CTA), guided by your creative brief. Editable.
-2. **🎬 Storyboard** — splits the script verbatim into 15–25s scenes, each with a visual prompt, b-roll search queries, and optional on-screen overlay text. Fully editable, per-scene delete.
-3. **🖼️ Visuals** — generates one 16:9 frame per scene (Gemini image), in one of three looks:
-   - **Cinematic AI** — photoreal frames, Ken Burns motion, crossfades
-   - **Real Assets** — documentary-style frames + one-click Pexels photo sourcing with automatic photographer attribution
+**Storyboard Studio (click "🎬 Storyboard Studio" on any topic, or 🎬 on a sidebar topic)**
+1. **📝 Script** — writes the complete word-for-word narration (hook, curiosity loops, retention hooks, CTA), guided by the creative brief built from your competitor research. Editable.
+2. **🎬 Storyboard** — splits the script verbatim into fast **3–5 second shots** (8–14 words each), every shot with its own visual prompt, b-roll search queries, and optional overlay text. Fully editable, per-shot delete.
+3. **🖼️ Visuals** — one 16:9 frame or clip per shot, in one of three looks:
+   - **Cinematic AI** — photoreal Gemini frames, Ken Burns motion, fast crossfades
+   - **Real Assets** — sourcing cascade: **Coverr video → Pixabay video/photo → Pexels fallback**, with a per-shot picker modal and automatic attribution. Real clips play live inside the final render.
    - **Stickman Doodle** — hand-drawn marker frames, hard cuts, no zoom
-4. **🎙️ Voiceover** — Gemini TTS per scene (8 voices). Each scene's exact audio length drives the edit (beat-sync). Download the full voiceover as **MP3** or WAV.
-5. **🎞️ Render** — in-browser renderer (canvas + MediaRecorder): Ken Burns/crossfades, top overlay titles, word-level **karaoke subtitles**, 720p/1080p. Downloads as **MP4** (Chrome/Safari) or WebM. Renders in real time — keep the tab focused.
-6. **📦 SEO Package** — titles, description, 15–20 tags, pinned comment, **auto-timestamped chapters** from your storyboard sections, and collected asset credits — downloadable as a `.zip` (script + storyboard.json + seo_package.txt).
+4. **🎙️ Voiceover** — voiced per script section for natural prosody, then beat-synced across the 3–5s shots by word count. Voice picker modal with **all 30 Gemini TTS voices**, plus **ElevenLabs, MiniMax, and Fish Audio voices via your ai33.pro account** — including **voice cloning** (upload a sample, it's cloned on ai33.pro and appears under My Clones). Preview any voice before committing. Download the full voiceover as **MP3** or WAV.
+5. **🎞️ Render** — in-browser renderer (canvas + MediaRecorder): fast cuts, Ken Burns on stills, real clips playing, word-level **karaoke subtitles**, 720p/1080p. Downloads as **MP4** (Chrome/Safari) or WebM. Renders in real time — keep the tab focused.
+6. **📦 SEO Package** — titles, description, tags, pinned comment, **auto-timestamped chapters**, and collected asset credits. Every generated package is **pinned to the Dashboard home** with one-tap copy buttons, and downloadable as a `.zip`.
 
-**⚡ Autopilot** runs script → storyboard → all frames → all voiceover in one click; you review and hit Render.
+**⚡ Autopilot** runs script → storyboard → all visuals → all voiceover → SEO in one click; you review and hit Render.
 
 ## API keys (Home page → API Keys)
 
@@ -28,8 +28,13 @@ A self-hosted vidrush.ai-style YouTube content factory that runs entirely in you
 |---|---|---|
 | YouTube Data API v3 | competitor scanning, outliers | ideation only |
 | Anthropic | topics, briefs, scripts, storyboards, SEO | yes |
-| Gemini | scene frames, thumbnails, TTS voiceover | studio |
-| Pexels | real b-roll photo sourcing | optional |
+| Gemini | scene frames, thumbnails, Gemini voices | studio |
+| ai33.pro | ElevenLabs / MiniMax / Fish Audio voices + cloning | optional |
+| Coverr | real b-roll video (primary source) | optional |
+| Pixabay | real b-roll video/photo (primary source) | optional |
+| Pexels | real b-roll fallback | optional |
+
+ai33.pro has no published API docs, so the client is deliberately tolerant (tries `/v1/tts`, `/tts`, `/v1/text-to-speech`; parses raw audio, `{audio_url}`, or base64 responses) and the **API base URL is configurable in Settings** — if your ai33.pro dashboard shows different endpoints, adjust the base URL there.
 
 ## Run it
 

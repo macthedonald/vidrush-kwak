@@ -52,10 +52,10 @@ Rules:
 Format: PLAIN narration text only. Mark each section with a line: [SECTION: Section Name]
 No markdown, no stage directions, no camera notes, no timestamps.`;
 
-export const SYS_STORYBOARD = `You are a storyboard director for faceless YouTube videos. Convert the narration script into a shot-by-shot storyboard.
-Split the ENTIRE script IN ORDER into scenes of 2-4 sentences each (~15-25 seconds of narration per scene). Do not skip, shorten, or paraphrase any narration — copy it verbatim.
+export const SYS_STORYBOARD = `You are a storyboard director for fast-cut faceless YouTube videos. Convert the narration script into a shot-by-shot storyboard.
+Split the ENTIRE script IN ORDER into SHORT shots of 3-5 seconds each — that is 8-14 words of narration per shot, cutting at natural clause boundaries. Do not skip, shorten, or paraphrase any narration — copy it verbatim across the shots.
 Return ONLY a JSON array, no markdown:
-[{"section":"section name","narration":"exact sentences from the script","visual":"a 40-70 word prompt describing ONE concrete 16:9 frame that illustrates this beat: subject, setting, composition, lighting, mood. Visual keywords only, no text in image","broll":["2-4 word stock-footage search query","alternative query"],"overlay":"optional on-screen text, max 4 words, or empty string"}]`;
+[{"section":"section name (keep the same value for consecutive shots of the same script section)","narration":"the exact 8-14 words from the script for this shot","visual":"a 30-50 word prompt describing ONE concrete 16:9 frame that illustrates this beat: subject, setting, composition, lighting, mood. Visual keywords only, no text in image","broll":["2-4 word stock-footage search query","alternative query"],"overlay":"optional on-screen text, max 4 words, or empty string"}]`;
 
 export const SYS_SEO = `You are a YouTube SEO strategist. For the given topic and niche return ONLY JSON (no markdown):
 {"titles":["5 clickbait-but-honest titles under 70 chars"],
@@ -145,12 +145,62 @@ export function pcmToMp3(pcm, rate, kbps = 128) {
   return new Blob(chunks, { type: "audio/mpeg" });
 }
 
-// ---------- Pexels (real-asset sourcing) ----------
+// ---------- Real-asset sourcing: Coverr + Pixabay primary, Pexels fallback ----------
 export async function pexelsPhotos(query, key, perPage = 6) {
   const r = await fetch(`https://api.pexels.com/v1/search?query=${encodeURIComponent(query)}&per_page=${perPage}&orientation=landscape`, { headers: { Authorization: key } });
   if (!r.ok) throw new Error(`Pexels ${r.status}`);
   const d = await r.json();
-  return (d.photos || []).map(p => ({ src: p.src.large2x || p.src.large, thumb: p.src.medium, photographer: p.photographer, url: p.url }));
+  return (d.photos || []).map(p => ({ kind: "photo", src: p.src.large2x || p.src.large, thumb: p.src.medium, credit: `Photo by ${p.photographer} on Pexels`, url: p.url, source: "Pexels" }));
+}
+export async function pexelsVideos(query, key, perPage = 5) {
+  const r = await fetch(`https://api.pexels.com/videos/search?query=${encodeURIComponent(query)}&per_page=${perPage}&orientation=landscape`, { headers: { Authorization: key } });
+  if (!r.ok) throw new Error(`Pexels ${r.status}`);
+  const d = await r.json();
+  return (d.videos || []).map(v => {
+    const files = (v.video_files || []).filter(f => f.file_type === "video/mp4").sort((a, b) => (a.width || 0) - (b.width || 0));
+    const pick = files.find(f => (f.width || 0) >= 960) || files[files.length - 1];
+    return pick && { kind: "video", src: pick.link, thumb: v.image, credit: `Video by ${v.user?.name || "Pexels creator"} on Pexels`, url: v.url, source: "Pexels" };
+  }).filter(Boolean);
+}
+export async function coverrVideos(query, key, pageSize = 6) {
+  const r = await fetch(`https://api.coverr.co/videos?urls=true&page_size=${pageSize}&query=${encodeURIComponent(query)}`, { headers: { Authorization: `Bearer ${key}` } });
+  if (!r.ok) throw new Error(`Coverr ${r.status}`);
+  const d = await r.json();
+  return (d.hits || []).map(v => ({ kind: "video", src: v.urls?.mp4_preview || v.urls?.mp4, thumb: v.thumbnail || v.poster, credit: `Video from Coverr (${v.title || v.id})`, url: `https://coverr.co/videos/${v.id}`, source: "Coverr" })).filter(v => v.src);
+}
+export async function pixabayVideos(query, key, perPage = 5) {
+  const r = await fetch(`https://pixabay.com/api/videos/?key=${key}&q=${encodeURIComponent(query)}&per_page=${perPage}&safesearch=true`);
+  if (!r.ok) throw new Error(`Pixabay ${r.status}`);
+  const d = await r.json();
+  return (d.hits || []).map(v => {
+    const f = v.videos?.medium?.url ? v.videos.medium : v.videos?.small;
+    return f && { kind: "video", src: f.url, thumb: v.videos?.tiny?.thumbnail || `https://i.vimeocdn.com/video/${v.picture_id}_295x166.jpg`, credit: `Video by ${v.user} on Pixabay`, url: v.pageURL, source: "Pixabay" };
+  }).filter(Boolean);
+}
+export async function pixabayPhotos(query, key, perPage = 6) {
+  const r = await fetch(`https://pixabay.com/api/?key=${key}&q=${encodeURIComponent(query)}&image_type=photo&orientation=horizontal&per_page=${perPage}&safesearch=true`);
+  if (!r.ok) throw new Error(`Pixabay ${r.status}`);
+  const d = await r.json();
+  return (d.hits || []).map(p => ({ kind: "photo", src: p.largeImageURL, thumb: p.webformatURL, credit: `Photo by ${p.user} on Pixabay`, url: p.pageURL, source: "Pixabay" }));
+}
+// Cascade: Coverr video → Pixabay video → Pixabay photo → Pexels video → Pexels photo.
+export async function sourceRealAsset(query, keys) {
+  const tries = [
+    keys.coverr && (() => coverrVideos(query, keys.coverr, 3)),
+    keys.pixabay && (() => pixabayVideos(query, keys.pixabay, 3)),
+    keys.pixabay && (() => pixabayPhotos(query, keys.pixabay, 3)),
+    keys.pexels && (() => pexelsVideos(query, keys.pexels, 3)),
+    keys.pexels && (() => pexelsPhotos(query, keys.pexels, 3)),
+  ].filter(Boolean);
+  for (const fn of tries) {
+    try { const res = await fn(); if (res.length) return res[0]; } catch {}
+  }
+  return null;
+}
+export async function urlToBlobUrl(url) {
+  const resp = await fetch(url);
+  if (!resp.ok) throw new Error(`Asset fetch ${resp.status}`);
+  return URL.createObjectURL(await resp.blob());
 }
 
 export async function urlToDataURL(url) {
@@ -210,11 +260,11 @@ export function pickMime() {
   return "";
 }
 
-function drawCover(g, img, W, H, scale, px, py) {
-  const iw = img.width, ih = img.height;
+function drawCoverM(g, media, W, H, scale, px, py) {
+  const iw = media.w, ih = media.h;
   const s = Math.max(W / iw, H / ih) * scale;
   const dw = iw * s, dh = ih * s;
-  g.drawImage(img, (W - dw) / 2 + px * (dw - W) / 2, (H - dh) / 2 + py * (dh - H) / 2, dw, dh);
+  g.drawImage(media.el, (W - dw) / 2 + px * (dw - W) / 2, (H - dh) / 2 + py * (dh - H) / 2, dw, dh);
 }
 
 function drawSubs(g, scene, p, W, H, doodle) {
@@ -251,13 +301,16 @@ function drawScene(g, s, p, W, H, style) {
   const doodle = style === "doodle";
   g.fillStyle = doodle ? "#fdfdfa" : "#000";
   g.fillRect(0, 0, W, H);
-  if (s.imgEl) {
-    if (doodle) drawCover(g, s.imgEl, W, H, 1, 0, 0); // hard frames, no motion (stickman-doodle rule)
+  const media = s.vidEl && s.vidEl.readyState >= 2 ? { el: s.vidEl, w: s.vidEl.videoWidth, h: s.vidEl.videoHeight } : s.imgEl ? { el: s.imgEl, w: s.imgEl.width, h: s.imgEl.height } : null;
+  if (media && media.w) {
+    if (doodle || s.vidEl) drawCoverM(g, media, W, H, 1, 0, 0); // hard frames for doodle; real clips play as-is
     else {
       const zoomIn = s.idx % 2 === 0;
       const scale = zoomIn ? 1 + 0.09 * p : 1.09 - 0.09 * p;
       const px = (s.idx % 4 < 2 ? -1 : 1) * (p - 0.5) * 0.3;
-      drawCover(g, s.imgEl, W, H, scale, px, 0);
+      drawCoverM(g, media, W, H, scale, px, 0);
+    }
+    if (!doodle) {
       const grad = g.createLinearGradient(0, H * 0.7, 0, H);
       grad.addColorStop(0, "rgba(0,0,0,0)"); grad.addColorStop(1, "rgba(0,0,0,.45)");
       g.fillStyle = grad; g.fillRect(0, H * 0.7, W, H * 0.3);
@@ -279,21 +332,16 @@ function drawScene(g, s, p, W, H, style) {
   }
 }
 
-export function renderVideo({ scenes, style = "cinematic", width = 1280, height = 720, fps = 30, subtitles = true, gap = 0.35, onProgress }) {
+// shots: [{idx, start, duration, imgEl?, vidEl?, narration, overlay, section}] with precomputed timing.
+// audioSegs: [{pcm, rate, start}] — section-level voiceover segments.
+export function renderVideo({ shots, audioSegs = [], total, style = "cinematic", width = 1280, height = 720, fps = 30, subtitles = true, onProgress }) {
   return new Promise(async (resolve, reject) => {
     try {
       const canvas = document.createElement("canvas");
       canvas.width = width; canvas.height = height;
       const g = canvas.getContext("2d");
-      // timeline
-      let t = 0;
-      const timeline = scenes.map((s, idx) => {
-        const duration = s.pcm ? s.pcm.length / s.rate : estDuration(s.narration);
-        const entry = { ...s, idx, start: t, duration, words: (s.narration || "").split(/\s+/).filter(Boolean) };
-        t += duration + gap;
-        return entry;
-      });
-      const total = t + 0.4;
+      const timeline = shots.map((s, idx) => ({ ...s, idx, words: (s.narration || "").split(/\s+/).filter(Boolean) }));
+      total = (total || (timeline.length ? timeline[timeline.length - 1].start + timeline[timeline.length - 1].duration : 0)) + 0.4;
       const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
       const dest = audioCtx.createMediaStreamDestination();
       const mime = pickMime();
@@ -308,33 +356,39 @@ export function renderVideo({ scenes, style = "cinematic", width = 1280, height 
         resolve({ blob: new Blob(chunks, { type: mime.split(";")[0] }), ext: mime.includes("mp4") ? "mp4" : "webm", duration: total });
       };
       rec.onerror = e => reject(e.error || new Error("Recorder error"));
-      // schedule audio
+      // schedule section audio
       const lead = 0.25;
       const t0 = audioCtx.currentTime + lead;
-      for (const s of timeline) {
-        if (!s.pcm) continue;
-        const buf = audioCtx.createBuffer(1, s.pcm.length, s.rate);
+      for (const seg of audioSegs) {
+        if (!seg.pcm?.length) continue;
+        const buf = audioCtx.createBuffer(1, seg.pcm.length, seg.rate);
         const ch = buf.getChannelData(0);
-        for (let i = 0; i < s.pcm.length; i++) ch[i] = s.pcm[i] / 32768;
+        for (let i = 0; i < seg.pcm.length; i++) ch[i] = seg.pcm[i] / 32768;
         const src = audioCtx.createBufferSource();
-        src.buffer = buf; src.connect(dest); src.start(t0 + s.start);
+        src.buffer = buf; src.connect(dest); src.start(t0 + seg.start);
       }
       rec.start(500);
       const startClock = performance.now() + lead * 1000;
-      let stopped = false;
+      let stopped = false, playingIdx = -1;
       const loop = () => {
         if (stopped) return;
         const now = (performance.now() - startClock) / 1000;
-        const cur = now < 0 ? timeline[0] : (timeline.filter(s => now >= s.start && now < s.start + s.duration + gap).pop() || timeline[timeline.length - 1]);
+        const cur = now < 0 ? timeline[0] : (timeline.filter(s => now >= s.start).pop() || timeline[timeline.length - 1]);
         if (cur) {
+          if (cur.vidEl && playingIdx !== cur.idx) {
+            if (playingIdx >= 0 && timeline[playingIdx]?.vidEl) timeline[playingIdx].vidEl.pause();
+            try { cur.vidEl.currentTime = 0; cur.vidEl.play().catch(() => {}); } catch {}
+            playingIdx = cur.idx;
+          }
           const p = Math.min(1, Math.max(0, (now - cur.start) / cur.duration));
           drawScene(g, cur, p, width, height, style);
-          // crossfade into next scene during the gap (cinematic/realasset only)
+          // quick crossfade into the next shot (cinematic/realasset only)
           if (style !== "doodle") {
             const next = timeline[cur.idx + 1];
-            const fadeStart = cur.start + cur.duration + gap - 0.35;
+            const fadeDur = 0.18;
+            const fadeStart = cur.start + cur.duration - fadeDur;
             if (next && now > fadeStart) {
-              g.globalAlpha = Math.min(1, (now - fadeStart) / 0.35);
+              g.globalAlpha = Math.min(1, (now - fadeStart) / fadeDur);
               drawScene(g, next, 0, width, height, style);
               g.globalAlpha = 1;
             }
@@ -342,11 +396,21 @@ export function renderVideo({ scenes, style = "cinematic", width = 1280, height 
           if (subtitles && now <= cur.start + cur.duration) drawSubs(g, cur, p, width, height, style === "doodle");
         }
         if (onProgress) onProgress(Math.min(1, Math.max(0, now / total)));
-        if (now >= total) { stopped = true; setTimeout(() => rec.stop(), 300); return; }
+        if (now >= total) { stopped = true; timeline.forEach(s => s.vidEl && s.vidEl.pause()); setTimeout(() => rec.stop(), 300); return; }
         requestAnimationFrame(loop);
       };
       requestAnimationFrame(loop);
     } catch (e) { reject(e); }
+  });
+}
+
+export function loadVideoEl(blobUrl) {
+  return new Promise((res, rej) => {
+    const v = document.createElement("video");
+    v.muted = true; v.loop = true; v.playsInline = true; v.preload = "auto";
+    v.onloadeddata = () => res(v);
+    v.onerror = () => rej(new Error("Video failed to load"));
+    v.src = blobUrl;
   });
 }
 

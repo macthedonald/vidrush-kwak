@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
-import Studio from "./studio.jsx";
+import Studio, { SeoView } from "./studio.jsx";
+import { AI33_DEFAULT_BASE } from "./ai33";
 
 const MODEL = "claude-sonnet-4-20250514";
 const YT = "https://www.googleapis.com/youtube/v3";
@@ -154,12 +155,16 @@ export default function App() {
   const [clKey, setClKey] = useState("");
   const [gemKey, setGemKey] = useState("");
   const [pexKey, setPexKey] = useState("");
+  const [pixKey, setPixKey] = useState("");
+  const [covKey, setCovKey] = useState("");
+  const [ai33Key, setAi33Key] = useState("");
+  const [ai33Base, setAi33Base] = useState(AI33_DEFAULT_BASE);
   const [niche, setNiche] = useState(null);
   const [studioCtx, setStudioCtx] = useState(null);
   const [ok, setOk] = useState(false);
   const [sb, setSb] = useState(true);
 
-  useEffect(() => { cleanThumbs("vr6-niches"); setNiches(ls("vr6-niches", ls("vr5-niches",[]))); setYtKey(ls("vr6-yt", ls("vr5-yt",""))); setClKey(ls("vr6-cl", ls("vr5-cl",""))); setGemKey(ls("vr6-gem","")); setPexKey(ls("vr7-pex","")); setOk(true); }, []);
+  useEffect(() => { cleanThumbs("vr6-niches"); setNiches(ls("vr6-niches", ls("vr5-niches",[]))); setYtKey(ls("vr6-yt", ls("vr5-yt",""))); setClKey(ls("vr6-cl", ls("vr5-cl",""))); setGemKey(ls("vr6-gem","")); setPexKey(ls("vr7-pex","")); setPixKey(ls("vr7-pix","")); setCovKey(ls("vr7-cov","")); setAi33Key(ls("vr7-a33","")); setAi33Base(ls("vr7-a33b",AI33_DEFAULT_BASE)); setOk(true); }, []);
   const sn = n => { setNiches(n); ss("vr6-niches",n); };
   const openNiche = (n) => {
     // Always read fresh from localStorage to avoid stale closures
@@ -208,6 +213,13 @@ export default function App() {
     setPg(P.GEN);
   };
 
+  const openStudioFromHist = (h) => {
+    if (!niche) return;
+    setNiche({...niche, topic: h.topic, topicVersion: h.version, savedPrompt: h.prompt||"", savedThumb: h.thumb||"", savedHistId: h.id, savedThumbs: h.thumbs||[], savedOptTitles: h.optTitles||[], savedOptDesc: h.optDesc||"", savedOptTags: h.optTags||[], savedThPrompt: h.thPrompt||""});
+    setStudioCtx({ topic: h.topic, version: h.version, histId: h.id, prompt: h.prompt||"" });
+    setPg(P.STUDIO);
+  };
+
   const remakeTopic = (h) => {
     if (!niche) return;
     const vc = hist.filter(x => x.topic.toLowerCase() === h.topic.toLowerCase()).length;
@@ -253,6 +265,7 @@ export default function App() {
                   <div className="yt-sb-item-t"><span className="yt-sb-version">V{h.version}</span>{h.topic}</div>
                   <div className="yt-sb-item-m">{h.date}{h.prompt ? " · 📝" : ""}{h.usedItems?.length ? ` · 🧬${h.usedItems.length}` : ""}</div>
                 </div>
+                <button className="yt-sb-remake" onClick={(e)=>{e.stopPropagation();openStudioFromHist(h);}} title="Open in Storyboard Studio">🎬</button>
                 <button className="yt-sb-remake" onClick={(e)=>{e.stopPropagation();remakeTopic(h);}} title="Remake with new items">🔄</button>
                 <button className="yt-sb-del" onClick={(e)=>{e.stopPropagation();if(confirm("Delete this topic?"))deleteH(niche.id,h.id);}} title="Delete topic">✕</button>
               </div>
@@ -260,21 +273,24 @@ export default function App() {
         </div>
       </aside>}
       <main className={`yt-main ${sb?'':'yt-main-full'}`}>
-        {pg===P.HOME && <Home niches={niches} ytKey={ytKey} clKey={clKey} gemKey={gemKey} pexKey={pexKey} sn={sn} setYtKey={k=>{setYtKey(k);ss("vr6-yt",k);}} setClKey={k=>{setClKey(k);ss("vr6-cl",k);}} setGemKey={k=>{setGemKey(k);ss("vr6-gem",k);}} setPexKey={k=>{setPexKey(k);ss("vr7-pex",k);}} go={n=>{openNiche(n);setPg(P.NICHE);}} />}
+        {pg===P.HOME && <Home niches={niches} keys={{ytKey,clKey,gemKey,pexKey,pixKey,covKey,ai33Key,ai33Base}} setKeys={k=>{setYtKey(k.ytKey);ss("vr6-yt",k.ytKey);setClKey(k.clKey);ss("vr6-cl",k.clKey);setGemKey(k.gemKey);ss("vr6-gem",k.gemKey);setPexKey(k.pexKey);ss("vr7-pex",k.pexKey);setPixKey(k.pixKey);ss("vr7-pix",k.pixKey);setCovKey(k.covKey);ss("vr7-cov",k.covKey);setAi33Key(k.ai33Key);ss("vr7-a33",k.ai33Key);setAi33Base(k.ai33Base);ss("vr7-a33b",k.ai33Base);}} sn={sn} go={n=>{openNiche(n);setPg(P.NICHE);}} />}
         {pg===P.NICHE && niche && <NichePg niche={niches.find(x=>x.id===niche.id)||niche} niches={niches} ytKey={ytKey} clKey={clKey} sn={sn} back={()=>{setNiche(null);setPg(P.HOME);}} gen={(t,v,refThumb)=>{const fresh=ls("vr6-niches",[]).find(x=>x.id===niche.id)||niche;setNiche({...fresh,topic:t,topicVersion:v||1,refThumb:refThumb||""});setPg(P.GEN);}} />}
         {pg===P.GEN && niche && <GenPg niche={niche} topic={niche.topic} version={niche.topicVersion||1} clKey={clKey} gemKey={gemKey} addH={addH} updateH={updateH} back={()=>setPg(P.NICHE)} goStudio={ctx=>{setStudioCtx(ctx);setPg(P.STUDIO);}} savedPrompt={niche.savedPrompt} savedThumb={niche.savedThumb} savedHistId={niche.savedHistId} refThumb={niche.refThumb} savedThumbs={niche.savedThumbs} savedOptTitles={niche.savedOptTitles} savedOptDesc={niche.savedOptDesc} savedOptTags={niche.savedOptTags} savedThPrompt={niche.savedThPrompt} />}
-        {pg===P.STUDIO && niche && studioCtx && <Studio niche={niche} ctx={studioCtx} clKey={clKey} gemKey={gemKey} pexKey={pexKey} back={()=>setPg(P.GEN)} />}
+        {pg===P.STUDIO && niche && studioCtx && <Studio niche={niche} ctx={studioCtx} clKey={clKey} gemKey={gemKey} pexKey={pexKey} pixKey={pixKey} covKey={covKey} ai33Key={ai33Key} ai33Base={ai33Base} addH={addH} updateH={updateH} back={()=>setPg(P.GEN)} />}
       </main>
     </div>
     <style>{CSS}</style>
   </div>);
 }
 
-function Home({ niches, ytKey, clKey, gemKey, pexKey, sn, setYtKey, setClKey, setGemKey, setPexKey, go }) {
+function Home({ niches, keys, setKeys, sn, go }) {
   const [adding, setAdding] = useState(false);
   const [name, setName] = useState(""); const [desc, setDesc] = useState(""); const [cover, setCover] = useState("");
-  const [showK, setShowK] = useState(!ytKey||!clKey);
-  const [yk, setYk] = useState(ytKey); const [ck, setCk] = useState(clKey); const [gk, setGk] = useState(gemKey); const [pk, setPk] = useState(pexKey);
+  const [showK, setShowK] = useState(!keys.ytKey||!keys.clKey);
+  const [k, setK] = useState(keys);
+  const [openSeo, setOpenSeo] = useState(null);
+  const kIn = (field, label, ph, type="password") => <div><label className="yt-label">{label}</label><input className="yt-input" type={type} placeholder={ph} value={k[field]} onChange={e=>setK(prev=>({...prev,[field]:e.target.value}))}/></div>;
+  const seoPkgs = niches.flatMap(n=>(n.history||[]).filter(h=>h.seo).map(h=>({nicheName:n.name,...h})));
   const handleCover = (e) => { const f=e.target.files[0]; if(!f) return; const r=new FileReader(); r.onload=ev=>setCover(ev.target.result); r.readAsDataURL(f); e.target.value=''; };
   const add = () => { if(!name.trim()) return; sn([...niches,{id:Date.now(),name:name.trim(),desc:desc.trim(),cover:cover||"",channels:[],history:[]}]); setName(""); setDesc(""); setCover(""); setAdding(false); };
 
@@ -291,9 +307,30 @@ function Home({ niches, ytKey, clKey, gemKey, pexKey, sn, setYtKey, setClKey, se
       </div>
     </div>
     <div className="yt-card">
-      <div className="yt-card-h" onClick={()=>setShowK(!showK)}><span className="yt-card-ht">🔑 API Keys {ytKey&&clKey&&gemKey?"✅":"— Setup Required"}</span><span className="yt-chev">{showK?"▲":"▼"}</span></div>
-      {showK && <div className="yt-card-b"><div className="yt-grid2"><div><label className="yt-label">YouTube API Key</label><input className="yt-input" type="password" placeholder="AIza..." value={yk} onChange={e=>setYk(e.target.value)}/></div><div><label className="yt-label">Anthropic API Key</label><input className="yt-input" type="password" placeholder="sk-ant-..." value={ck} onChange={e=>setCk(e.target.value)}/></div><div><label className="yt-label">Gemini API Key (images + voiceover)</label><input className="yt-input" type="password" placeholder="AIza..." value={gk} onChange={e=>setGk(e.target.value)}/></div><div><label className="yt-label">Pexels API Key (optional — real b-roll)</label><input className="yt-input" type="password" placeholder="563492ad..." value={pk} onChange={e=>setPk(e.target.value)}/></div></div><button className="yt-btn" onClick={()=>{setYtKey(yk);setClKey(ck);setGemKey(gk);setPexKey(pk);setShowK(false);}}>Save Keys</button><p className="yt-hint">Stored locally in your browser. Never sent to our servers.</p></div>}
+      <div className="yt-card-h" onClick={()=>setShowK(!showK)}><span className="yt-card-ht">🔑 API Keys {keys.ytKey&&keys.clKey&&keys.gemKey?"✅":"— Setup Required"}</span><span className="yt-chev">{showK?"▲":"▼"}</span></div>
+      {showK && <div className="yt-card-b">
+        <div className="yt-grid2">
+          {kIn("ytKey","YouTube API Key","AIza...")}
+          {kIn("clKey","Anthropic API Key","sk-ant-...")}
+          {kIn("gemKey","Gemini API Key (images + Gemini voices)","AIza...")}
+          {kIn("ai33Key","ai33.pro API Key (ElevenLabs / MiniMax / Fish voices + cloning)","a33-...")}
+          {kIn("covKey","Coverr API Key (real b-roll video, primary)","coverr key...")}
+          {kIn("pixKey","Pixabay API Key (real b-roll video/photo, primary)","4859...")}
+          {kIn("pexKey","Pexels API Key (real b-roll fallback)","563492ad...")}
+          {kIn("ai33Base","ai33.pro API Base URL","https://ai33.pro/api","text")}
+        </div>
+        <button className="yt-btn" onClick={()=>{setKeys(k);setShowK(false);}}>Save Keys</button>
+        <p className="yt-hint">Stored locally in your browser. Never sent to our servers.</p>
+      </div>}
     </div>
+    {seoPkgs.length>0&&<><div className="yt-sec-h"><h2>📦 SEO Packages</h2></div>
+      <div className="yt-seo-board">{seoPkgs.map(p=><div key={p.id} className="yt-card yt-seo-card">
+        <div className="yt-card-h" onClick={()=>setOpenSeo(openSeo===p.id?null:p.id)}>
+          <span className="yt-card-ht">{p.topic}<span className="yt-seo-niche">{p.nicheName} · {p.date}</span></span>
+          <span className="yt-chev">{openSeo===p.id?"▲":"▼"}</span>
+        </div>
+        {openSeo===p.id&&<div className="yt-card-b"><SeoView seo={p.seo} compact/></div>}
+      </div>)}</div></>}
     <div className="yt-sec-h"><h2>Your Niches</h2><button className="yt-btn" onClick={()=>setAdding(true)}>+ New Niche</button></div>
     {adding && <div className="yt-card yt-card-glow"><div className="yt-card-b">
       <div className="yt-niche-form">
@@ -1121,6 +1158,9 @@ const CSS = `
 .yt-btn-gen:hover{box-shadow:0 6px 24px var(--red-glow);transform:translateY(-1px)}
 .yt-btn-studio{background:linear-gradient(135deg,#7c3aed 0%,#4f46e5 100%);border:none;border-radius:var(--radius3);padding:11px 22px;color:#fff;font-size:14px;font-weight:600;cursor:pointer;font-family:var(--font);white-space:nowrap;transition:all .25s;letter-spacing:.2px}
 .yt-btn-studio:hover{box-shadow:0 6px 24px rgba(124,58,237,.4);transform:translateY(-1px)}
+.yt-seo-board{display:flex;flex-direction:column;gap:0;margin-bottom:24px}
+.yt-seo-card{padding:14px 20px}
+.yt-seo-niche{font-size:11px;font-weight:500;color:var(--text3);margin-left:10px}
 .yt-btn-thb{background:var(--blue-bg);border:1px solid rgba(77,159,255,.2);border-radius:var(--radius3);padding:10px 20px;color:var(--blue);font-size:13px;font-weight:600;cursor:pointer;font-family:var(--font);white-space:nowrap;transition:all .2s}
 .yt-btn-thb:hover{background:rgba(77,159,255,.2);box-shadow:0 4px 12px rgba(77,159,255,.15)}
 .yt-btn-ref{background:var(--blue-bg);border:1px solid rgba(77,159,255,.2);border-radius:var(--radius3);padding:10px 18px;color:var(--blue);font-size:13px;font-weight:600;cursor:pointer;font-family:var(--font);white-space:nowrap;transition:all .2s}
