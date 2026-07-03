@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import Studio from "./studio.jsx";
 
 const MODEL = "claude-sonnet-4-20250514";
 const YT = "https://www.googleapis.com/youtube/v3";
@@ -144,7 +145,7 @@ const SYS_THREF = `Thumbnail analyst. Analyze this YouTube thumbnail image. Desc
 
 Then write 3 NEW thumbnail prompts for the given topic that replicate this exact visual style. Each prompt: 1 paragraph, "hyperrealistic cinematic", end "no text, 16:9".`;
 
-const P = { HOME: 0, NICHE: 1, GEN: 2 };
+const P = { HOME: 0, NICHE: 1, GEN: 2, STUDIO: 3 };
 
 export default function App() {
   const [pg, setPg] = useState(P.HOME);
@@ -152,11 +153,13 @@ export default function App() {
   const [ytKey, setYtKey] = useState("");
   const [clKey, setClKey] = useState("");
   const [gemKey, setGemKey] = useState("");
+  const [pexKey, setPexKey] = useState("");
   const [niche, setNiche] = useState(null);
+  const [studioCtx, setStudioCtx] = useState(null);
   const [ok, setOk] = useState(false);
   const [sb, setSb] = useState(true);
 
-  useEffect(() => { cleanThumbs("vr6-niches"); setNiches(ls("vr6-niches", ls("vr5-niches",[]))); setYtKey(ls("vr6-yt", ls("vr5-yt",""))); setClKey(ls("vr6-cl", ls("vr5-cl",""))); setGemKey(ls("vr6-gem","")); setOk(true); }, []);
+  useEffect(() => { cleanThumbs("vr6-niches"); setNiches(ls("vr6-niches", ls("vr5-niches",[]))); setYtKey(ls("vr6-yt", ls("vr5-yt",""))); setClKey(ls("vr6-cl", ls("vr5-cl",""))); setGemKey(ls("vr6-gem","")); setPexKey(ls("vr7-pex","")); setOk(true); }, []);
   const sn = n => { setNiches(n); ss("vr6-niches",n); };
   const openNiche = (n) => {
     // Always read fresh from localStorage to avoid stale closures
@@ -234,7 +237,7 @@ export default function App() {
         </button>
         <div className="yt-logo" onClick={()=>setPg(P.HOME)}>
           <svg width="30" height="22" viewBox="0 0 90 65"><path fill="#FF0000" d="M88.1 17.3c-1-3.9-4-7-7.8-8C73.3 7.5 45 7.5 45 7.5s-28.3 0-35.3 1.8c-3.8 1-6.8 4.1-7.8 8C0 24.4 0 39.2 0 39.2s0 14.8 1.9 21.9c1 3.9 4 6.9 7.8 7.9 7 1.8 35.3 1.8 35.3 1.8s28.3 0 35.3-1.8c3.8-1 6.8-4 7.8-7.9 1.9-7.1 1.9-21.9 1.9-21.9s0-14.8-1.9-21.9z"/><path fill="#FFF" d="M36 52V28l23.5 12z"/></svg>
-          <span>VidRush</span><span className="yt-ver-badge">v6</span>
+          <span>VidRush</span><span className="yt-ver-badge">v7 Studio</span>
         </div>
       </div>
       <div className="yt-topbar-r">{niche && pg!==P.HOME && <span className="yt-niche-pill">{niche.name}</span>}</div>
@@ -257,20 +260,21 @@ export default function App() {
         </div>
       </aside>}
       <main className={`yt-main ${sb?'':'yt-main-full'}`}>
-        {pg===P.HOME && <Home niches={niches} ytKey={ytKey} clKey={clKey} gemKey={gemKey} sn={sn} setYtKey={k=>{setYtKey(k);ss("vr6-yt",k);}} setClKey={k=>{setClKey(k);ss("vr6-cl",k);}} setGemKey={k=>{setGemKey(k);ss("vr6-gem",k);}} go={n=>{openNiche(n);setPg(P.NICHE);}} />}
+        {pg===P.HOME && <Home niches={niches} ytKey={ytKey} clKey={clKey} gemKey={gemKey} pexKey={pexKey} sn={sn} setYtKey={k=>{setYtKey(k);ss("vr6-yt",k);}} setClKey={k=>{setClKey(k);ss("vr6-cl",k);}} setGemKey={k=>{setGemKey(k);ss("vr6-gem",k);}} setPexKey={k=>{setPexKey(k);ss("vr7-pex",k);}} go={n=>{openNiche(n);setPg(P.NICHE);}} />}
         {pg===P.NICHE && niche && <NichePg niche={niches.find(x=>x.id===niche.id)||niche} niches={niches} ytKey={ytKey} clKey={clKey} sn={sn} back={()=>{setNiche(null);setPg(P.HOME);}} gen={(t,v,refThumb)=>{const fresh=ls("vr6-niches",[]).find(x=>x.id===niche.id)||niche;setNiche({...fresh,topic:t,topicVersion:v||1,refThumb:refThumb||""});setPg(P.GEN);}} />}
-        {pg===P.GEN && niche && <GenPg niche={niche} topic={niche.topic} version={niche.topicVersion||1} clKey={clKey} gemKey={gemKey} addH={addH} updateH={updateH} back={()=>setPg(P.NICHE)} savedPrompt={niche.savedPrompt} savedThumb={niche.savedThumb} savedHistId={niche.savedHistId} refThumb={niche.refThumb} savedThumbs={niche.savedThumbs} savedOptTitles={niche.savedOptTitles} savedOptDesc={niche.savedOptDesc} savedOptTags={niche.savedOptTags} savedThPrompt={niche.savedThPrompt} />}
+        {pg===P.GEN && niche && <GenPg niche={niche} topic={niche.topic} version={niche.topicVersion||1} clKey={clKey} gemKey={gemKey} addH={addH} updateH={updateH} back={()=>setPg(P.NICHE)} goStudio={ctx=>{setStudioCtx(ctx);setPg(P.STUDIO);}} savedPrompt={niche.savedPrompt} savedThumb={niche.savedThumb} savedHistId={niche.savedHistId} refThumb={niche.refThumb} savedThumbs={niche.savedThumbs} savedOptTitles={niche.savedOptTitles} savedOptDesc={niche.savedOptDesc} savedOptTags={niche.savedOptTags} savedThPrompt={niche.savedThPrompt} />}
+        {pg===P.STUDIO && niche && studioCtx && <Studio niche={niche} ctx={studioCtx} clKey={clKey} gemKey={gemKey} pexKey={pexKey} back={()=>setPg(P.GEN)} />}
       </main>
     </div>
     <style>{CSS}</style>
   </div>);
 }
 
-function Home({ niches, ytKey, clKey, gemKey, sn, setYtKey, setClKey, setGemKey, go }) {
+function Home({ niches, ytKey, clKey, gemKey, pexKey, sn, setYtKey, setClKey, setGemKey, setPexKey, go }) {
   const [adding, setAdding] = useState(false);
   const [name, setName] = useState(""); const [desc, setDesc] = useState(""); const [cover, setCover] = useState("");
   const [showK, setShowK] = useState(!ytKey||!clKey);
-  const [yk, setYk] = useState(ytKey); const [ck, setCk] = useState(clKey); const [gk, setGk] = useState(gemKey);
+  const [yk, setYk] = useState(ytKey); const [ck, setCk] = useState(clKey); const [gk, setGk] = useState(gemKey); const [pk, setPk] = useState(pexKey);
   const handleCover = (e) => { const f=e.target.files[0]; if(!f) return; const r=new FileReader(); r.onload=ev=>setCover(ev.target.result); r.readAsDataURL(f); e.target.value=''; };
   const add = () => { if(!name.trim()) return; sn([...niches,{id:Date.now(),name:name.trim(),desc:desc.trim(),cover:cover||"",channels:[],history:[]}]); setName(""); setDesc(""); setCover(""); setAdding(false); };
 
@@ -288,7 +292,7 @@ function Home({ niches, ytKey, clKey, gemKey, sn, setYtKey, setClKey, setGemKey,
     </div>
     <div className="yt-card">
       <div className="yt-card-h" onClick={()=>setShowK(!showK)}><span className="yt-card-ht">🔑 API Keys {ytKey&&clKey&&gemKey?"✅":"— Setup Required"}</span><span className="yt-chev">{showK?"▲":"▼"}</span></div>
-      {showK && <div className="yt-card-b"><div className="yt-grid3"><div><label className="yt-label">YouTube API Key</label><input className="yt-input" type="password" placeholder="AIza..." value={yk} onChange={e=>setYk(e.target.value)}/></div><div><label className="yt-label">Anthropic API Key</label><input className="yt-input" type="password" placeholder="sk-ant-..." value={ck} onChange={e=>setCk(e.target.value)}/></div><div><label className="yt-label">Gemini API Key</label><input className="yt-input" type="password" placeholder="AIza..." value={gk} onChange={e=>setGk(e.target.value)}/></div></div><button className="yt-btn" onClick={()=>{setYtKey(yk);setClKey(ck);setGemKey(gk);setShowK(false);}}>Save Keys</button><p className="yt-hint">Encrypted locally in your browser. Never sent to our servers.</p></div>}
+      {showK && <div className="yt-card-b"><div className="yt-grid2"><div><label className="yt-label">YouTube API Key</label><input className="yt-input" type="password" placeholder="AIza..." value={yk} onChange={e=>setYk(e.target.value)}/></div><div><label className="yt-label">Anthropic API Key</label><input className="yt-input" type="password" placeholder="sk-ant-..." value={ck} onChange={e=>setCk(e.target.value)}/></div><div><label className="yt-label">Gemini API Key (images + voiceover)</label><input className="yt-input" type="password" placeholder="AIza..." value={gk} onChange={e=>setGk(e.target.value)}/></div><div><label className="yt-label">Pexels API Key (optional — real b-roll)</label><input className="yt-input" type="password" placeholder="563492ad..." value={pk} onChange={e=>setPk(e.target.value)}/></div></div><button className="yt-btn" onClick={()=>{setYtKey(yk);setClKey(ck);setGemKey(gk);setPexKey(pk);setShowK(false);}}>Save Keys</button><p className="yt-hint">Stored locally in your browser. Never sent to our servers.</p></div>}
     </div>
     <div className="yt-sec-h"><h2>Your Niches</h2><button className="yt-btn" onClick={()=>setAdding(true)}>+ New Niche</button></div>
     {adding && <div className="yt-card yt-card-glow"><div className="yt-card-b">
@@ -436,7 +440,7 @@ function NichePg({ niche, niches, ytKey, clKey, sn, back, gen }) {
   </div>);
 }
 
-function GenPg({ niche, topic, version, clKey, gemKey, addH, updateH, back, savedPrompt, savedThumb, savedHistId, refThumb: initialRefThumb, savedThumbs, savedOptTitles, savedOptDesc, savedOptTags, savedThPrompt }) {
+function GenPg({ niche, topic, version, clKey, gemKey, addH, updateH, back, goStudio, savedPrompt, savedThumb, savedHistId, refThumb: initialRefThumb, savedThumbs, savedOptTitles, savedOptDesc, savedOptTags, savedThPrompt }) {
   const [mode, setMode] = useState(savedPrompt ? "auto" : null);
   const [sty, setSty] = useState("documentary"); const [dur, setDur] = useState("15");
   const [prompt, setPrompt] = useState(savedPrompt || "");
@@ -683,6 +687,7 @@ English only. No markdown.`;
       <div><label className="yt-label">Style</label><select className="yt-sel" value={sty} onChange={e=>setSty(e.target.value)}><option value="documentary">Documentary</option><option value="top10">Top 10</option></select></div>
       <div className="yt-gen-btns">
         <button className={`yt-btn-gen ${ld?'yt-btn-ld':''}`} onClick={go} disabled={ld}>{ld?"⏳ Generating...":"⚡ Generate Prompt"}</button>
+        <button className="yt-btn-studio" onClick={()=>goStudio({topic,version,histId,prompt})} title="Full pipeline: script → storyboard → visuals → voiceover → MP4 + SEO package">🎬 Storyboard Studio →</button>
       </div>
     </div>
     {ld&&<div className="yt-ld-box"><div className="yt-spin"/><p>Building detailed prompt...</p></div>}
@@ -1114,6 +1119,8 @@ const CSS = `
 .yt-gen-btns{display:flex;gap:8px;flex-wrap:wrap}
 .yt-btn-gen{background:linear-gradient(135deg,var(--red) 0%,#cc2020 100%);border:none;border-radius:var(--radius3);padding:11px 26px;color:#fff;font-size:14px;font-weight:600;cursor:pointer;font-family:var(--font);flex:1;white-space:nowrap;transition:all .25s;letter-spacing:.2px}
 .yt-btn-gen:hover{box-shadow:0 6px 24px var(--red-glow);transform:translateY(-1px)}
+.yt-btn-studio{background:linear-gradient(135deg,#7c3aed 0%,#4f46e5 100%);border:none;border-radius:var(--radius3);padding:11px 22px;color:#fff;font-size:14px;font-weight:600;cursor:pointer;font-family:var(--font);white-space:nowrap;transition:all .25s;letter-spacing:.2px}
+.yt-btn-studio:hover{box-shadow:0 6px 24px rgba(124,58,237,.4);transform:translateY(-1px)}
 .yt-btn-thb{background:var(--blue-bg);border:1px solid rgba(77,159,255,.2);border-radius:var(--radius3);padding:10px 20px;color:var(--blue);font-size:13px;font-weight:600;cursor:pointer;font-family:var(--font);white-space:nowrap;transition:all .2s}
 .yt-btn-thb:hover{background:rgba(77,159,255,.2);box-shadow:0 4px 12px rgba(77,159,255,.15)}
 .yt-btn-ref{background:var(--blue-bg);border:1px solid rgba(77,159,255,.2);border-radius:var(--radius3);padding:10px 18px;color:var(--blue);font-size:13px;font-weight:600;cursor:pointer;font-family:var(--font);white-space:nowrap;transition:all .2s}
