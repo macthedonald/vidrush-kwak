@@ -164,7 +164,7 @@ export default function App() {
   const [ok, setOk] = useState(false);
   const [sb, setSb] = useState(true);
 
-  useEffect(() => { cleanThumbs("vr6-niches"); setNiches(ls("vr6-niches", ls("vr5-niches",[]))); setYtKey(ls("vr6-yt", ls("vr5-yt",""))); setClKey(ls("vr6-cl", ls("vr5-cl",""))); setGemKey(ls("vr6-gem","")); setPexKey(ls("vr7-pex","")); setPixKey(ls("vr7-pix","")); setCovKey(ls("vr7-cov","")); setAi33Key(ls("vr7-a33","")); setAi33Base(ls("vr7-a33b",AI33_DEFAULT_BASE)); setOk(true); }, []);
+  useEffect(() => { cleanThumbs("vr6-niches"); setNiches(ls("vr6-niches", ls("vr5-niches",[]))); setYtKey(ls("vr6-yt", ls("vr5-yt",""))); setClKey(ls("vr6-cl", ls("vr5-cl",""))); setGemKey(ls("vr6-gem","")); setPexKey(ls("vr7-pex","")); setPixKey(ls("vr7-pix","")); setCovKey(ls("vr7-cov","")); setAi33Key(ls("vr7-a33","")); const a33b=ls("vr7-a33b",AI33_DEFAULT_BASE); setAi33Base(a33b==="https://ai33.pro/api"?AI33_DEFAULT_BASE:a33b); setOk(true); }, []);
   const sn = n => { setNiches(n); ss("vr6-niches",n); };
   const openNiche = (n) => {
     // Always read fresh from localStorage to avoid stale closures
@@ -313,11 +313,11 @@ function Home({ niches, keys, setKeys, sn, go }) {
           {kIn("ytKey","YouTube API Key","AIza...")}
           {kIn("clKey","Anthropic API Key","sk-ant-...")}
           {kIn("gemKey","Gemini API Key (images + Gemini voices)","AIza...")}
-          {kIn("ai33Key","ai33.pro API Key (ElevenLabs / MiniMax / Fish voices + cloning)","a33-...")}
+          {kIn("ai33Key","AI33 API Key (ElevenLabs / MiniMax / Fish voices + cloning)","xi-api-key value...")}
           {kIn("covKey","Coverr API Key (real b-roll video, primary)","coverr key...")}
           {kIn("pixKey","Pixabay API Key (real b-roll video/photo, primary)","4859...")}
           {kIn("pexKey","Pexels API Key (real b-roll fallback)","563492ad...")}
-          {kIn("ai33Base","ai33.pro API Base URL","https://ai33.pro/api","text")}
+          {kIn("ai33Base","AI33 API Base URL","https://api.ai33.pro","text")}
         </div>
         <button className="yt-btn" onClick={()=>{setKeys(k);setShowK(false);}}>Save Keys</button>
         <p className="yt-hint">Stored locally in your browser. Never sent to our servers.</p>

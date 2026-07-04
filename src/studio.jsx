@@ -5,7 +5,7 @@ import {
   coverrVideos, pixabayVideos, pixabayPhotos, pexelsVideos, pexelsPhotos, sourceRealAsset, urlToBlobUrl, urlToDataURL,
   makeZip, fmtTime, estDuration, renderVideo, loadImage, loadVideoEl, pickMime,
 } from "./pipeline";
-import { GEMINI_VOICES, ELEVENLABS_VOICES, MINIMAX_VOICES, ai33ListVoices, ai33TTS, ai33Clone, decodeToPcm24k, AI33_DEFAULT_BASE } from "./ai33";
+import { GEMINI_VOICES, ELEVENLABS_VOICES, MINIMAX_VOICES, ai33ListVoices, ai33TTS, ai33Clone, ai33DeleteClone, decodeToPcm24k, AI33_DEFAULT_BASE } from "./ai33";
 
 const STEPS = ["📝 Script", "🎬 Storyboard", "🖼️ Visuals", "🎙️ Voiceover", "🎞️ Render", "📦 SEO Package"];
 const STYLES = [
@@ -187,8 +187,9 @@ export default function Studio({ niche, ctx, clKey, gemKey, pexKey, pixKey, covK
       if (!gemKey) throw new Error("Set Gemini API key for Gemini voices");
       return geminiTTS(text, voiceSel.id, gemKey);
     }
-    if (!ai33Key) throw new Error("Set ai33.pro API key for ElevenLabs / MiniMax / Fish voices");
-    const buf = await ai33TTS(ai33Base || AI33_DEFAULT_BASE, ai33Key, { provider: voiceSel.provider === "clone" ? "elevenlabs" : voiceSel.provider, voiceId: voiceSel.id, text });
+    if (!ai33Key) throw new Error("Set AI33 API key for ElevenLabs / MiniMax / Fish / cloned voices");
+    // voiceSel.id is already provider-prefixed (elevenlabs_ / minimax_ / fishaudio_ / clone_)
+    const buf = await ai33TTS(ai33Base || AI33_DEFAULT_BASE, ai33Key, { voiceId: voiceSel.id, text });
     return decodeToPcm24k(buf);
   };
   const ttsSection = async (si, list) => {
@@ -505,33 +506,39 @@ export function SeoView({ seo, compact }) {
 
 // ---- Voice selection modal: Gemini + ai33.pro (ElevenLabs / MiniMax / Fish) + cloning ----
 function VoiceModal({ voiceSel, pick, close, gemKey, ai33Key, ai33Base }) {
-  const [tab, setTab] = useState(voiceSel.provider === "clone" ? "clones" : voiceSel.provider);
+  const [tab, setTab] = useState(["gemini", "elevenlabs", "minimax", "fishaudio", "clone"].includes(voiceSel.provider) ? (voiceSel.provider === "clone" ? "clones" : voiceSel.provider) : "gemini");
   const [live, setLive] = useState({}); // provider → voices[]
   const [loading, setLoading] = useState("");
   const [err, setErr] = useState("");
   const [preview, setPreview] = useState("");
+  const [search, setSearch] = useState("");
   const [clones, setClones] = useState(() => ls("vr7-clones", []));
   const [cloneName, setCloneName] = useState("");
   const [cloneFile, setCloneFile] = useState(null);
   const [cloning, setCloning] = useState(false);
+  const b = ai33Base || AI33_DEFAULT_BASE;
 
-  const TABS = [["gemini", "Gemini"], ["elevenlabs", "ElevenLabs"], ["minimax", "MiniMax"], ["fish", "Fish Audio"], ["clones", "🧬 My Clones"]];
+  const TABS = [["gemini", "Gemini"], ["elevenlabs", "ElevenLabs"], ["minimax", "MiniMax"], ["fishaudio", "Fish Audio"], ["clones", "🧬 My Clones"]];
+  const localFilter = list => search ? list.filter(v => (v.name + " " + v.desc).toLowerCase().includes(search.toLowerCase())) : list;
   const lists = {
-    gemini: GEMINI_VOICES,
-    elevenlabs: live.elevenlabs || ELEVENLABS_VOICES,
-    minimax: live.minimax || MINIMAX_VOICES,
-    fish: live.fish || [],
-    clones: clones.map(c => ({ provider: "clone", id: c.id, name: c.name, desc: "Your cloned voice (ai33.pro)" })),
+    gemini: localFilter(GEMINI_VOICES),
+    elevenlabs: live.elevenlabs || localFilter(ELEVENLABS_VOICES),
+    minimax: live.minimax || localFilter(MINIMAX_VOICES),
+    fishaudio: live.fishaudio || [],
+    clones: live.clone || clones.map(c => ({ provider: "clone", id: c.id, name: c.name, desc: "Your cloned voice (AI33)" })),
   };
-  const loadLive = async (prov) => {
-    if (!ai33Key) { setErr("Add your ai33.pro API key in Settings to load live voice lists"); return; }
-    setLoading(prov); setErr("");
-    try { const voices = await ai33ListVoices(ai33Base || AI33_DEFAULT_BASE, ai33Key, prov); setLive(prev => ({ ...prev, [prov]: voices })); }
+  const loadLive = async (t) => {
+    if (!ai33Key) { setErr("Add your AI33 API key in Settings to load live voice lists"); return; }
+    const prov = t === "clones" ? "clone" : t;
+    setLoading(t); setErr("");
+    try { const voices = await ai33ListVoices(b, ai33Key, prov, { search }); setLive(prev => ({ ...prev, [prov]: voices })); }
     catch (e) { setErr(e.message); }
     setLoading("");
   };
   const doPreview = async (v) => {
-    setPreview(v.id); setErr("");
+    setErr("");
+    if (v.preview) { new Audio(v.preview).play().catch(() => setErr("Preview audio failed to play")); return; }
+    setPreview(v.id);
     try {
       const text = "This is how I sound narrating your next video.";
       let pcm, rate;
@@ -539,8 +546,8 @@ function VoiceModal({ voiceSel, pick, close, gemKey, ai33Key, ai33Base }) {
         if (!gemKey) throw new Error("Gemini key needed for preview");
         ({ pcm, rate } = await geminiTTS(text, v.id, gemKey));
       } else {
-        if (!ai33Key) throw new Error("ai33.pro key needed for preview");
-        const buf = await ai33TTS(ai33Base || AI33_DEFAULT_BASE, ai33Key, { provider: v.provider === "clone" ? "elevenlabs" : v.provider, voiceId: v.id, text });
+        if (!ai33Key) throw new Error("AI33 key needed for preview");
+        const buf = await ai33TTS(b, ai33Key, { voiceId: v.id, text });
         ({ pcm, rate } = await decodeToPcm24k(buf));
       }
       const url = URL.createObjectURL(pcmToWav(pcm, rate));
@@ -549,37 +556,51 @@ function VoiceModal({ voiceSel, pick, close, gemKey, ai33Key, ai33Base }) {
     setPreview("");
   };
   const doClone = async () => {
-    if (!ai33Key) { setErr("Add your ai33.pro API key in Settings to clone voices"); return; }
-    if (!cloneFile || !cloneName.trim()) { setErr("Pick an audio file and a name for your clone"); return; }
+    if (!ai33Key) { setErr("Add your AI33 API key in Settings to clone voices"); return; }
+    if (!cloneFile || !cloneName.trim()) { setErr("Pick an audio file (≤10MB) and a name for your clone"); return; }
     setCloning(true); setErr("");
     try {
-      const v = await ai33Clone(ai33Base || AI33_DEFAULT_BASE, ai33Key, { name: cloneName.trim(), file: cloneFile });
+      const v = await ai33Clone(b, ai33Key, { name: cloneName.trim(), file: cloneFile });
       const next = [...clones, { id: v.id, name: v.name }];
       setClones(next); ss("vr7-clones", next);
       setCloneName(""); setCloneFile(null);
+      loadLive("clones");
     } catch (e) { setErr(e.message); }
     setCloning(false);
+  };
+  const doDeleteClone = async (v) => {
+    if (!confirm(`Delete cloned voice "${v.name}" from your AI33 account?`)) return;
+    setErr("");
+    try {
+      await ai33DeleteClone(b, ai33Key, v.id);
+      const next = clones.filter(c => c.id !== v.id);
+      setClones(next); ss("vr7-clones", next);
+      setLive(prev => ({ ...prev, clone: (prev.clone || []).filter(c => c.id !== v.id) }));
+    } catch (e) { setErr(e.message); }
   };
 
   return (<div className="vs-pex-modal" onClick={close}><div className="vs-pex-box vs-voice-box" onClick={e => e.stopPropagation()}>
     <div className="vs-row-between"><span className="yt-card-ht">🎙️ Choose a Voice</span><button className="yt-x" onClick={close}>✕</button></div>
-    <div className="vs-src-tabs">{TABS.map(([id, n]) => <button key={id} className={`vs-src-tab ${tab === id ? "active" : ""}`} onClick={() => setTab(id)}>{n}</button>)}
-      {tab !== "gemini" && tab !== "clones" && <button className="yt-btn-o" onClick={() => loadLive(tab)} disabled={loading === tab}>{loading === tab ? "⏳" : "🔄 Load live list (ai33)"}</button>}
+    <div className="vs-src-tabs">{TABS.map(([id, n]) => <button key={id} className={`vs-src-tab ${tab === id ? "active" : ""}`} onClick={() => { setTab(id); setErr(""); }}>{n}</button>)}</div>
+    <div className="vs-src-tabs" style={{ marginTop: 8 }}>
+      <input className="yt-input" style={{ maxWidth: 260 }} placeholder="Search voices..." value={search} onChange={e => setSearch(e.target.value)} onKeyDown={e => e.key === "Enter" && tab !== "gemini" && loadLive(tab)}/>
+      {tab !== "gemini" && <button className="yt-btn-o" onClick={() => loadLive(tab)} disabled={loading === tab}>{loading === tab ? "⏳ Loading..." : "🔄 Load from AI33"}</button>}
     </div>
-    {tab !== "gemini" && tab !== "clones" && !ai33Key && <p className="yt-hint">⚠️ These voices run through your ai33.pro account — add the API key in Settings. Static catalog shown below.</p>}
-    {tab === "fish" && !lists.fish.length && <p className="yt-hint">Fish Audio voices load live from ai33.pro — hit "🔄 Load live list".</p>}
+    {tab !== "gemini" && !ai33Key && <p className="yt-hint">⚠️ These voices run through your AI33 account (api.ai33.pro) — add the API key in Settings.{tab === "elevenlabs" || tab === "minimax" ? " Built-in catalog shown below." : ""}</p>}
+    {tab === "fishaudio" && !lists.fishaudio.length && <p className="yt-hint">Fish Audio voices load live from AI33 (sorted by trending) — hit "🔄 Load from AI33".</p>}
     {err && <p className="yt-st err">⚠️ {err}</p>}
-    <div className="vs-voice-grid">{lists[tab].map(v => <div key={v.provider + v.id} className={`vs-voice-card ${voiceSel.id === v.id && voiceSel.provider === v.provider ? "active" : ""}`}>
+    <div className="vs-voice-grid">{lists[tab].map(v => <div key={v.provider + v.id} className={`vs-voice-card ${voiceSel.id === v.id ? "active" : ""}`}>
       <div className="vs-voice-n">{v.name}</div>
       <div className="vs-voice-d">{v.desc}</div>
       <div className="vs-frame-btns">
         <button className="yt-btn-remake" onClick={() => doPreview(v)} disabled={preview === v.id}>{preview === v.id ? "⏳" : "▶ Preview"}</button>
         <button className="yt-btn-use-sm" onClick={() => pick({ provider: v.provider, id: v.id, name: v.name })}>Use</button>
+        {tab === "clones" && <button className="yt-btn-remake" onClick={() => doDeleteClone(v)}>🗑</button>}
       </div>
     </div>)}</div>
     {tab === "clones" && <div className="vs-clone-box">
-      <div className="yt-card-ht" style={{ marginBottom: 8 }}>🧬 Clone a new voice (uploads to ai33.pro)</div>
-      <p className="yt-hint">Upload 30s–3min of clean speech (mp3/wav). The sample is sent to your ai33.pro account, cloned there, and the new voice appears above.</p>
+      <div className="yt-card-ht" style={{ marginBottom: 8 }}>🧬 Clone a new voice (uploads to AI33)</div>
+      <p className="yt-hint">Upload 30s–3min of clean speech (mp3/wav, max 10MB). The sample is sent to your AI33 account, cloned there, and the new voice appears above ready to use.</p>
       <div className="yt-input-row" style={{ marginTop: 8 }}>
         <input className="yt-input" placeholder="Voice name, e.g. My Narrator" value={cloneName} onChange={e => setCloneName(e.target.value)}/>
         <label className="yt-btn-o" style={{ cursor: "pointer" }}>

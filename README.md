@@ -16,7 +16,7 @@ A self-hosted vidrush.ai-style YouTube content factory that runs entirely in you
    - **Cinematic AI** — photoreal Gemini frames, Ken Burns motion, fast crossfades
    - **Real Assets** — sourcing cascade: **Coverr video → Pixabay video/photo → Pexels fallback**, with a per-shot picker modal and automatic attribution. Real clips play live inside the final render.
    - **Stickman Doodle** — hand-drawn marker frames, hard cuts, no zoom
-4. **🎙️ Voiceover** — voiced per script section for natural prosody, then beat-synced across the 3–5s shots by word count. Voice picker modal with **all 30 Gemini TTS voices**, plus **ElevenLabs, MiniMax, and Fish Audio voices via your ai33.pro account** — including **voice cloning** (upload a sample, it's cloned on ai33.pro and appears under My Clones). Preview any voice before committing. Download the full voiceover as **MP3** or WAV.
+4. **🎙️ Voiceover** — voiced per script section for natural prosody, then beat-synced across the 3–5s shots by word count. Voice picker modal with **all 30 Gemini TTS voices**, plus **ElevenLabs, MiniMax, and Fish Audio voices via your AI33 account** (live-searchable) — including **voice cloning** (upload a ≤10MB sample, it's cloned on AI33 and appears under My Clones, deletable). Preview any voice before committing. Download the full voiceover as **MP3** or WAV.
 5. **🎞️ Render** — in-browser renderer (canvas + MediaRecorder): fast cuts, Ken Burns on stills, real clips playing, word-level **karaoke subtitles**, 720p/1080p. Downloads as **MP4** (Chrome/Safari) or WebM. Renders in real time — keep the tab focused.
 6. **📦 SEO Package** — titles, description, tags, pinned comment, **auto-timestamped chapters**, and collected asset credits. Every generated package is **pinned to the Dashboard home** with one-tap copy buttons, and downloadable as a `.zip`.
 
@@ -29,12 +29,14 @@ A self-hosted vidrush.ai-style YouTube content factory that runs entirely in you
 | YouTube Data API v3 | competitor scanning, outliers | ideation only |
 | Anthropic | topics, briefs, scripts, storyboards, SEO | yes |
 | Gemini | scene frames, thumbnails, Gemini voices | studio |
-| ai33.pro | ElevenLabs / MiniMax / Fish Audio voices + cloning | optional |
+| AI33 (api.ai33.pro) | ElevenLabs / MiniMax / Fish Audio voices + cloning | optional |
 | Coverr | real b-roll video (primary source) | optional |
 | Pixabay | real b-roll video/photo (primary source) | optional |
 | Pexels | real b-roll fallback | optional |
 
-ai33.pro has no published API docs, so the client is deliberately tolerant (tries `/v1/tts`, `/tts`, `/v1/text-to-speech`; parses raw audio, `{audio_url}`, or base64 responses) and the **API base URL is configurable in Settings** — if your ai33.pro dashboard shows different endpoints, adjust the base URL there.
+### AI33 integration details
+
+Base URL `https://api.ai33.pro` (configurable in Settings), auth via the `xi-api-key` header. TTS is asynchronous: the app POSTs FormData to `/v3/text-to-speech` with a provider-prefixed `voice_id` (`elevenlabs_…`, `minimax_…`, `fishaudio_…`, `clone_…`), polls `GET /v1/task/{task_id}` until `status: "done"`, then downloads `metadata.audio_url` and decodes it to PCM for the renderer. Voice lists come from `GET /v3/voices?provider=…` (Fish Audio sorted by trending, all providers searchable). Cloning POSTs `voice_name` + `audio_file` (≤10MB) to `/v3/text-to-speech/voice-clone` and uses the returned id as `clone_<voice_id>`; clones can be deleted from the modal.
 
 ## Run it
 
