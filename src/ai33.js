@@ -120,6 +120,29 @@ export async function ai33DeleteClone(b, key, voiceId) {
   return true;
 }
 
+// Suno background music via AI33: POST /v1s/task/music-generation (simple mode) → poll → audio ArrayBuffer.
+export async function ai33Suno(b, key, { prompt, instrumental = true, onProgress }) {
+  const d = await jfetch(`${base(b)}/v1s/task/music-generation`, {
+    method: "POST", headers: { ...hdrs(key), "Content-Type": "application/json" },
+    body: JSON.stringify({ create_mode: "simple", gpt_description_prompt: prompt.slice(0, 500), make_instrumental: instrumental }),
+  });
+  if (!d?.success || !d?.task_id) throw new Error(d?.error_message || "AI33 Suno: no task_id returned");
+  const meta = await ai33PollTask(b, key, d.task_id, { intervalMs: 6000, timeoutMs: 600000, onProgress });
+  const url = meta.audio_url || meta.all_audio_urls?.[0] || meta.suno_result?.clips?.[0]?.audio_url;
+  if (!url) throw new Error("Suno finished but no audio_url in task metadata");
+  const ar = await fetch(url);
+  if (!ar.ok) throw new Error(`Suno audio fetch ${ar.status}`);
+  return { arrayBuffer: await ar.arrayBuffer(), title: meta.title || meta.suno_result?.clips?.[0]?.title || "Suno track" };
+}
+
+// Decode compressed audio to a Web Audio AudioBuffer (kept as-is for background-music mixing).
+export async function decodeAudioBuffer(arrayBuffer) {
+  const ctx = new (window.AudioContext || window.webkitAudioContext)();
+  const buf = await ctx.decodeAudioData(arrayBuffer.slice(0));
+  ctx.close().catch(() => {});
+  return buf;
+}
+
 export async function ai33Credits(b, key) {
   const d = await jfetch(`${base(b)}/v1/credits`, { headers: { ...hdrs(key), "Content-Type": "application/json" } });
   return d?.credits ?? d?.data?.credits ?? d;

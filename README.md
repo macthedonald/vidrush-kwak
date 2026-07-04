@@ -1,10 +1,18 @@
-# VidRush v7 Studio
+# VidRush v8 Studio
 
-A self-hosted vidrush.ai-style YouTube content factory that runs entirely in your browser — from **video ideation to a rendered video download, voiceover MP3, and a full SEO package**. No backend: your API keys stay in localStorage and every call goes straight from the browser to the provider.
+A self-hosted vidrush.ai-style YouTube content factory that runs entirely in your browser — from **niche discovery and video ideation to a rendered video download, voiceover MP3, background music, and a full SEO package**. No backend: your API keys stay in localStorage and every call goes straight from the browser to the provider.
+
+Built production-lean: code-split pages (React.lazy), an error boundary around every route, and an anime.js motion system (page reveals, animated counters, score gauges, step transitions).
 
 ## The pipeline
 
-**Ideation (existing VidRush core)**
+**🔭 Niche Finder (VidIQ-style)**
+- Add niche keywords by hand, or type a broad topic and let AI suggest 8 sub-niches.
+- Each keyword is scored 0–100 on live YouTube data (last 30/90/180 days, region-selectable): **Demand** (log-scaled average views), **Opportunity** (small channels winning + outlier count), **Velocity** (views/day), minus **Competition** (share of 1M+ sub channels), plus engagement.
+- Shows outlier videos (views ≫ channel subs) and **breakout channels**.
+- **Save niche** or **Research this niche →** — saving auto-seeds the breakout channels as competitors, and Research picks up from there: scan → topics → brief → Studio. One unbroken flow from "does this niche work?" to a finished video.
+
+**Research (VidRush core)**
 1. Create a niche, add competitor channels, scan their uploads via the YouTube Data API.
 2. Outlier ranking (views vs channel average) + AI topic suggestions from real competitor data.
 3. Creative brief generator (4-pillar prompt), title/description/tag optimizer, AI thumbnail lab (reference-cloning or from scratch).
@@ -17,7 +25,7 @@ A self-hosted vidrush.ai-style YouTube content factory that runs entirely in you
    - **Real Assets** — sourcing cascade: **Coverr video → Pixabay video/photo → Pexels fallback**, with a per-shot picker modal and automatic attribution. Real clips play live inside the final render.
    - **Stickman Doodle** — hand-drawn marker frames, hard cuts, no zoom
 4. **🎙️ Voiceover** — voiced per script section for natural prosody, then beat-synced across the 3–5s shots by word count. Voice picker modal with **all 30 Gemini TTS voices**, plus **ElevenLabs, MiniMax, and Fish Audio voices via your AI33 account** (live-searchable) — including **voice cloning** (upload a ≤10MB sample, it's cloned on AI33 and appears under My Clones, deletable). Preview any voice before committing. Download the full voiceover as **MP3** or WAV.
-5. **🎞️ Render** — in-browser renderer (canvas + MediaRecorder): fast cuts, Ken Burns on stills, real clips playing, word-level **karaoke subtitles**, 720p/1080p. Downloads as **MP4** (Chrome/Safari) or WebM. Renders in real time — keep the tab focused.
+5. **🎞️ Render** — in-browser renderer (canvas + MediaRecorder): fast cuts, Ken Burns on stills, real clips playing, word-level **karaoke subtitles**, 720p/1080p. **Background music**: upload your own track (any audio format) or generate an instrumental with **Suno via AI33** — looped, volume-ducked under the voiceover, auto fade-out. Downloads as **MP4** (Chrome/Safari) or WebM. Renders in real time — keep the tab focused.
 6. **📦 SEO Package** — titles, description, tags, pinned comment, **auto-timestamped chapters**, and collected asset credits. Every generated package is **pinned to the Dashboard home** with one-tap copy buttons, and downloadable as a `.zip`.
 
 **⚡ Autopilot** runs script → storyboard → all visuals → all voiceover → SEO in one click; you review and hit Render.

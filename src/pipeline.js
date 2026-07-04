@@ -334,7 +334,8 @@ function drawScene(g, s, p, W, H, style) {
 
 // shots: [{idx, start, duration, imgEl?, vidEl?, narration, overlay, section}] with precomputed timing.
 // audioSegs: [{pcm, rate, start}] — section-level voiceover segments.
-export function renderVideo({ shots, audioSegs = [], total, style = "cinematic", width = 1280, height = 720, fps = 30, subtitles = true, onProgress }) {
+// music: optional {buffer: AudioBuffer, volume: 0..1} — looped under the voiceover, faded out at the end.
+export function renderVideo({ shots, audioSegs = [], total, music = null, style = "cinematic", width = 1280, height = 720, fps = 30, subtitles = true, onProgress }) {
   return new Promise(async (resolve, reject) => {
     try {
       const canvas = document.createElement("canvas");
@@ -359,6 +360,19 @@ export function renderVideo({ shots, audioSegs = [], total, style = "cinematic",
       // schedule section audio
       const lead = 0.25;
       const t0 = audioCtx.currentTime + lead;
+      // background music: looped, ducked under the voiceover, 2s fade-out at the end
+      if (music?.buffer) {
+        const mSrc = audioCtx.createBufferSource();
+        mSrc.buffer = music.buffer; mSrc.loop = true;
+        const gain = audioCtx.createGain();
+        const vol = music.volume ?? 0.12;
+        gain.gain.setValueAtTime(0, t0);
+        gain.gain.linearRampToValueAtTime(vol, t0 + 1);
+        gain.gain.setValueAtTime(vol, t0 + Math.max(1, total - 2));
+        gain.gain.linearRampToValueAtTime(0, t0 + total);
+        mSrc.connect(gain); gain.connect(dest);
+        mSrc.start(t0); mSrc.stop(t0 + total);
+      }
       for (const seg of audioSegs) {
         if (!seg.pcm?.length) continue;
         const buf = audioCtx.createBuffer(1, seg.pcm.length, seg.rate);

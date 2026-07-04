@@ -1,6 +1,25 @@
-import { useState, useEffect } from "react";
-import Studio, { SeoView } from "./studio.jsx";
+import { useState, useEffect, lazy, Suspense, Component } from "react";
+import { SeoView } from "./seoview.jsx";
 import { AI33_DEFAULT_BASE } from "./ai33";
+import { useReveal, Counter } from "./anim.jsx";
+
+// Heavy pages are code-split — the dashboard shell stays fast.
+const Studio = lazy(() => import("./studio.jsx"));
+const NicheFinder = lazy(() => import("./nichefinder.jsx"));
+
+class ErrorBoundary extends Component {
+  constructor(p) { super(p); this.state = { err: null }; }
+  static getDerivedStateFromError(err) { return { err }; }
+  render() {
+    if (this.state.err) return (<div className="yt-page" style={{ padding: 40, textAlign: "center" }}>
+      <h2 style={{ marginBottom: 10 }}>😵 Something broke</h2>
+      <p style={{ color: "rgba(255,255,255,.55)", fontSize: 14, marginBottom: 18 }}>{String(this.state.err?.message || this.state.err)}</p>
+      <button className="yt-btn" onClick={() => this.setState({ err: null })}>Try again</button>
+    </div>);
+    return this.props.children;
+  }
+}
+const PageLoader = () => <div className="yt-loading" style={{ minHeight: "40vh" }}><div className="yt-spin"/></div>;
 
 const MODEL = "claude-sonnet-4-20250514";
 const YT = "https://www.googleapis.com/youtube/v3";
@@ -146,7 +165,7 @@ const SYS_THREF = `Thumbnail analyst. Analyze this YouTube thumbnail image. Desc
 
 Then write 3 NEW thumbnail prompts for the given topic that replicate this exact visual style. Each prompt: 1 paragraph, "hyperrealistic cinematic", end "no text, 16:9".`;
 
-const P = { HOME: 0, NICHE: 1, GEN: 2, STUDIO: 3 };
+const P = { HOME: 0, NICHE: 1, GEN: 2, STUDIO: 3, FINDER: 4 };
 
 export default function App() {
   const [pg, setPg] = useState(P.HOME);
@@ -249,10 +268,16 @@ export default function App() {
         </button>
         <div className="yt-logo" onClick={()=>setPg(P.HOME)}>
           <svg width="30" height="22" viewBox="0 0 90 65"><path fill="#FF0000" d="M88.1 17.3c-1-3.9-4-7-7.8-8C73.3 7.5 45 7.5 45 7.5s-28.3 0-35.3 1.8c-3.8 1-6.8 4.1-7.8 8C0 24.4 0 39.2 0 39.2s0 14.8 1.9 21.9c1 3.9 4 6.9 7.8 7.9 7 1.8 35.3 1.8 35.3 1.8s28.3 0 35.3-1.8c3.8-1 6.8-4 7.8-7.9 1.9-7.1 1.9-21.9 1.9-21.9s0-14.8-1.9-21.9z"/><path fill="#FFF" d="M36 52V28l23.5 12z"/></svg>
-          <span>VidRush</span><span className="yt-ver-badge">v7 Studio</span>
+          <span>VidRush</span><span className="yt-ver-badge">v8</span>
         </div>
+        <nav className="yt-nav">
+          <button className={pg===P.HOME?"active":""} onClick={()=>setPg(P.HOME)}>Dashboard</button>
+          <button className={pg===P.FINDER?"active":""} onClick={()=>setPg(P.FINDER)}>🔭 Niche Finder</button>
+          {niche && <button className={pg===P.NICHE||pg===P.GEN?"active":""} onClick={()=>setPg(P.NICHE)}>📊 Research</button>}
+          {studioCtx && niche && <button className={pg===P.STUDIO?"active":""} onClick={()=>setPg(P.STUDIO)}>🎬 Studio</button>}
+        </nav>
       </div>
-      <div className="yt-topbar-r">{niche && pg!==P.HOME && <span className="yt-niche-pill">{niche.name}</span>}</div>
+      <div className="yt-topbar-r">{niche && pg!==P.HOME && pg!==P.FINDER && <span className="yt-niche-pill">{niche.name}</span>}</div>
     </header>
     <div className="yt-layout">
       {sb && <aside className="yt-sidebar">
@@ -272,18 +297,20 @@ export default function App() {
             </div>)}</div>}
         </div>
       </aside>}
-      <main className={`yt-main ${sb?'':'yt-main-full'}`}>
-        {pg===P.HOME && <Home niches={niches} keys={{ytKey,clKey,gemKey,pexKey,pixKey,covKey,ai33Key,ai33Base}} setKeys={k=>{setYtKey(k.ytKey);ss("vr6-yt",k.ytKey);setClKey(k.clKey);ss("vr6-cl",k.clKey);setGemKey(k.gemKey);ss("vr6-gem",k.gemKey);setPexKey(k.pexKey);ss("vr7-pex",k.pexKey);setPixKey(k.pixKey);ss("vr7-pix",k.pixKey);setCovKey(k.covKey);ss("vr7-cov",k.covKey);setAi33Key(k.ai33Key);ss("vr7-a33",k.ai33Key);setAi33Base(k.ai33Base);ss("vr7-a33b",k.ai33Base);}} sn={sn} go={n=>{openNiche(n);setPg(P.NICHE);}} />}
+      <main className={`yt-main ${sb?'':'yt-main-full'}`}><ErrorBoundary><Suspense fallback={<PageLoader/>}>
+        {pg===P.HOME && <Home niches={niches} keys={{ytKey,clKey,gemKey,pexKey,pixKey,covKey,ai33Key,ai33Base}} setKeys={k=>{setYtKey(k.ytKey);ss("vr6-yt",k.ytKey);setClKey(k.clKey);ss("vr6-cl",k.clKey);setGemKey(k.gemKey);ss("vr6-gem",k.gemKey);setPexKey(k.pexKey);ss("vr7-pex",k.pexKey);setPixKey(k.pixKey);ss("vr7-pix",k.pixKey);setCovKey(k.covKey);ss("vr7-cov",k.covKey);setAi33Key(k.ai33Key);ss("vr7-a33",k.ai33Key);setAi33Base(k.ai33Base);ss("vr7-a33b",k.ai33Base);}} sn={sn} go={n=>{openNiche(n);setPg(P.NICHE);}} goFinder={()=>setPg(P.FINDER)} />}
         {pg===P.NICHE && niche && <NichePg niche={niches.find(x=>x.id===niche.id)||niche} niches={niches} ytKey={ytKey} clKey={clKey} sn={sn} back={()=>{setNiche(null);setPg(P.HOME);}} gen={(t,v,refThumb)=>{const fresh=ls("vr6-niches",[]).find(x=>x.id===niche.id)||niche;setNiche({...fresh,topic:t,topicVersion:v||1,refThumb:refThumb||""});setPg(P.GEN);}} />}
         {pg===P.GEN && niche && <GenPg niche={niche} topic={niche.topic} version={niche.topicVersion||1} clKey={clKey} gemKey={gemKey} addH={addH} updateH={updateH} back={()=>setPg(P.NICHE)} goStudio={ctx=>{setStudioCtx(ctx);setPg(P.STUDIO);}} savedPrompt={niche.savedPrompt} savedThumb={niche.savedThumb} savedHistId={niche.savedHistId} refThumb={niche.refThumb} savedThumbs={niche.savedThumbs} savedOptTitles={niche.savedOptTitles} savedOptDesc={niche.savedOptDesc} savedOptTags={niche.savedOptTags} savedThPrompt={niche.savedThPrompt} />}
         {pg===P.STUDIO && niche && studioCtx && <Studio niche={niche} ctx={studioCtx} clKey={clKey} gemKey={gemKey} pexKey={pexKey} pixKey={pixKey} covKey={covKey} ai33Key={ai33Key} ai33Base={ai33Base} addH={addH} updateH={updateH} back={()=>setPg(P.GEN)} />}
-      </main>
+        {pg===P.FINDER && <NicheFinder ytKey={ytKey} clKey={clKey} niches={niches} sn={sn} goNiche={n=>{openNiche(n);setPg(P.NICHE);}} />}
+      </Suspense></ErrorBoundary></main>
     </div>
     <style>{CSS}</style>
   </div>);
 }
 
-function Home({ niches, keys, setKeys, sn, go }) {
+function Home({ niches, keys, setKeys, sn, go, goFinder }) {
+  const pageRef = useReveal([]);
   const [adding, setAdding] = useState(false);
   const [name, setName] = useState(""); const [desc, setDesc] = useState(""); const [cover, setCover] = useState("");
   const [showK, setShowK] = useState(!keys.ytKey||!keys.clKey);
@@ -294,16 +321,18 @@ function Home({ niches, keys, setKeys, sn, go }) {
   const handleCover = (e) => { const f=e.target.files[0]; if(!f) return; const r=new FileReader(); r.onload=ev=>setCover(ev.target.result); r.readAsDataURL(f); e.target.value=''; };
   const add = () => { if(!name.trim()) return; sn([...niches,{id:Date.now(),name:name.trim(),desc:desc.trim(),cover:cover||"",channels:[],history:[]}]); setName(""); setDesc(""); setCover(""); setAdding(false); };
 
-  return (<div className="yt-page">
+  return (<div className="yt-page" ref={pageRef}>
     <div className="yt-hero">
       <div className="yt-hero-text">
         <h1 className="yt-hero-title">Welcome to VidRush</h1>
-        <p className="yt-hero-sub">Analyze competitors. Generate viral content. Dominate your niche.</p>
+        <p className="yt-hero-sub">Find a niche. Research competitors. Storyboard, voice, render, and rank — all in one place.</p>
+        <button className="yt-btn yt-hero-cta" onClick={goFinder}>🔭 Find a winning niche →</button>
       </div>
       <div className="yt-hero-stats">
-        <div className="yt-stat"><span className="yt-stat-num">{niches.length}</span><span className="yt-stat-label">Niches</span></div>
-        <div className="yt-stat"><span className="yt-stat-num">{niches.reduce((s,n)=>s+(n.history?.length||0),0)}</span><span className="yt-stat-label">Topics</span></div>
-        <div className="yt-stat"><span className="yt-stat-num">{niches.reduce((s,n)=>s+(n.channels?.length||0),0)}</span><span className="yt-stat-label">Channels</span></div>
+        <div className="yt-stat"><span className="yt-stat-num"><Counter value={niches.length}/></span><span className="yt-stat-label">Niches</span></div>
+        <div className="yt-stat"><span className="yt-stat-num"><Counter value={niches.reduce((s,n)=>s+(n.history?.length||0),0)}/></span><span className="yt-stat-label">Topics</span></div>
+        <div className="yt-stat"><span className="yt-stat-num"><Counter value={niches.reduce((s,n)=>s+(n.channels?.length||0),0)}/></span><span className="yt-stat-label">Channels</span></div>
+        <div className="yt-stat"><span className="yt-stat-num"><Counter value={niches.reduce((s,n)=>s+(n.history||[]).filter(h=>h.seo).length,0)}/></span><span className="yt-stat-label">SEO Packs</span></div>
       </div>
     </div>
     <div className="yt-card">
@@ -917,21 +946,34 @@ English only. No markdown.`;
 const CSS = `
 @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
 :root{
-  --bg:rgb(11,11,15);--bg2:rgb(18,18,24);--bg3:rgb(24,24,32);--bg4:rgb(32,32,42);
+  --bg:#0a0a11;--bg2:#101018;--bg3:#161622;--bg4:#1f1f2e;
   --surface:rgba(255,255,255,.04);--surface2:rgba(255,255,255,.07);--surface3:rgba(255,255,255,.1);
-  --border:rgba(255,255,255,.08);--border2:rgba(255,255,255,.12);
-  --text:#f0f0f5;--text2:rgba(255,255,255,.55);--text3:rgba(255,255,255,.35);
-  --red:#ff3b3b;--red2:#ff5252;--red-bg:rgba(255,59,59,.12);--red-glow:rgba(255,59,59,.25);
+  --border:rgba(255,255,255,.08);--border2:rgba(255,255,255,.13);
+  --text:#f2f2f8;--text2:rgba(240,240,250,.58);--text3:rgba(240,240,250,.36);
+  --red:#ff3b3b;--red2:#ff5252;--red-bg:rgba(255,59,59,.12);--red-glow:rgba(255,59,59,.28);
+  --violet:#7c3aed;--violet2:#4f46e5;--violet-glow:rgba(124,58,237,.35);
   --blue:#4d9fff;--blue-bg:rgba(77,159,255,.12);
-  --green:#34d399;--green-bg:rgba(52,211,153,.12);
+  --green:#34d399;--green-bg:rgba(52,211,153,.12);--amber:#f59e0b;
   --glass:rgba(255,255,255,.03);--glass2:rgba(255,255,255,.06);
-  --radius:14px;--radius2:10px;--radius3:8px;
-  --shadow:0 4px 24px rgba(0,0,0,.4);--shadow2:0 2px 12px rgba(0,0,0,.3);
+  --radius:16px;--radius2:12px;--radius3:9px;
+  --shadow:0 8px 32px rgba(0,0,0,.45);--shadow2:0 2px 12px rgba(0,0,0,.3);
   --font:'DM Sans',system-ui,-apple-system,sans-serif;--mono:'JetBrains Mono',monospace;
 }
 *{box-sizing:border-box;margin:0;padding:0}
 ::selection{background:var(--red);color:#fff}
-.yt-app{min-height:100vh;background:var(--bg);color:var(--text);font-family:var(--font);-webkit-font-smoothing:antialiased}
+::-webkit-scrollbar{width:10px;height:10px}
+::-webkit-scrollbar-thumb{background:var(--surface3);border-radius:5px;border:2px solid var(--bg)}
+::-webkit-scrollbar-track{background:transparent}
+.yt-app{min-height:100vh;color:var(--text);font-family:var(--font);-webkit-font-smoothing:antialiased;
+  background:radial-gradient(1100px 500px at 85% -10%,rgba(124,58,237,.10),transparent 60%),radial-gradient(900px 420px at -10% 0%,rgba(255,59,59,.08),transparent 55%),var(--bg)}
+
+/* NAV */
+.yt-nav{display:flex;gap:4px;margin-left:20px;background:var(--surface);border:1px solid var(--border);border-radius:22px;padding:4px}
+.yt-nav button{background:transparent;border:none;border-radius:18px;padding:7px 16px;color:var(--text2);font-size:12.5px;font-weight:600;cursor:pointer;font-family:var(--font);transition:all .2s;white-space:nowrap}
+.yt-nav button:hover{color:var(--text);background:var(--surface2)}
+.yt-nav button.active{background:linear-gradient(135deg,var(--red),#cc2020);color:#fff;box-shadow:0 2px 12px var(--red-glow)}
+.yt-hero-cta{margin-top:4px;padding:11px 26px;font-size:14px}
+@media(max-width:900px){.yt-nav{display:none}}
 
 /* TOPBAR */
 .yt-topbar{height:60px;background:rgba(11,11,15,.85);backdrop-filter:blur(20px) saturate(180%);-webkit-backdrop-filter:blur(20px) saturate(180%);border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;padding:0 20px;position:sticky;top:0;z-index:100}
@@ -1007,8 +1049,8 @@ const CSS = `
 .yt-card-glow{border-color:var(--red);box-shadow:0 0 20px var(--red-glow)}
 
 /* CARDS */
-.yt-card{background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius);padding:20px;margin-bottom:16px;transition:border-color .2s}
-.yt-card:hover{border-color:var(--border2)}
+.yt-card{background:linear-gradient(180deg,rgba(255,255,255,.02),transparent 60%),var(--bg3);border:1px solid var(--border);border-radius:var(--radius);padding:20px;margin-bottom:16px;transition:border-color .25s,transform .25s,box-shadow .25s}
+.yt-card:hover{border-color:var(--border2);box-shadow:var(--shadow2)}
 .yt-card-h{display:flex;justify-content:space-between;align-items:center;cursor:pointer}
 .yt-card-ht{font-size:14px;font-weight:600;margin-bottom:6px;color:var(--text);letter-spacing:-.1px}
 .yt-card-b{margin-top:14px}
@@ -1057,8 +1099,8 @@ const CSS = `
 
 /* NICHE GRID */
 .yt-niche-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:14px}
-.yt-niche-card{background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;cursor:pointer;transition:all .25s}
-.yt-niche-card:hover{border-color:var(--red);box-shadow:0 4px 20px rgba(255,59,59,.1);transform:translateY(-2px)}
+.yt-niche-card{background:linear-gradient(180deg,rgba(255,255,255,.03),transparent 50%),var(--bg3);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;cursor:pointer;transition:all .3s cubic-bezier(.16,1,.3,1)}
+.yt-niche-card:hover{border-color:var(--red);box-shadow:0 10px 32px rgba(255,59,59,.14);transform:translateY(-4px) scale(1.01)}
 .yt-niche-cover-wrap{width:100%;height:120px;overflow:hidden;position:relative}
 .yt-niche-cover{width:100%;height:100%;object-fit:cover;transition:transform .3s}
 .yt-niche-card:hover .yt-niche-cover{transform:scale(1.05)}

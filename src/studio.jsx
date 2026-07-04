@@ -5,7 +5,9 @@ import {
   coverrVideos, pixabayVideos, pixabayPhotos, pexelsVideos, pexelsPhotos, sourceRealAsset, urlToBlobUrl, urlToDataURL,
   makeZip, fmtTime, estDuration, renderVideo, loadImage, loadVideoEl, pickMime,
 } from "./pipeline";
-import { GEMINI_VOICES, ELEVENLABS_VOICES, MINIMAX_VOICES, ai33ListVoices, ai33TTS, ai33Clone, ai33DeleteClone, decodeToPcm24k, AI33_DEFAULT_BASE } from "./ai33";
+import { GEMINI_VOICES, ELEVENLABS_VOICES, MINIMAX_VOICES, ai33ListVoices, ai33TTS, ai33Clone, ai33DeleteClone, ai33Suno, decodeAudioBuffer, decodeToPcm24k, AI33_DEFAULT_BASE } from "./ai33";
+import { SeoView } from "./seoview";
+import { usePopIn } from "./anim";
 
 const STEPS = ["📝 Script", "🎬 Storyboard", "🖼️ Visuals", "🎙️ Voiceover", "🎞️ Render", "📦 SEO Package"];
 const STYLES = [
@@ -35,6 +37,11 @@ export default function Studio({ niche, ctx, clKey, gemKey, pexKey, pixKey, covK
   const [video, setVideo] = useState(null);
   const [seo, setSeo] = useState(null);
   const [srcPick, setSrcPick] = useState(null); // {sceneIdx, query, tab, results, loading}
+  const [music, setMusic] = useState(null); // {name, buffer: AudioBuffer, url}
+  const [musicVol, setMusicVol] = useState(0.12);
+  const [musicPrompt, setMusicPrompt] = useState("");
+  const [musicProg, setMusicProg] = useState(-1);
+  const panelRef = usePopIn([step]);
   const cancelRef = useRef(false);
   const assetKeys = { coverr: covKey, pixabay: pixKey, pexels: pexKey };
 
@@ -231,6 +238,37 @@ export default function Studio({ niche, ctx, clKey, gemKey, pexKey, pixKey, covK
     dlBlob(kind === "mp3" ? pcmToMp3(pcm, rate) : pcmToWav(pcm, rate), `voiceover_${slug(ctx.topic)}.${kind}`);
   };
 
+  // ---- Background music: custom upload or Suno via AI33 ----
+  const onMusicUpload = async (e) => {
+    const file = e.target.files?.[0]; if (!file) return;
+    e.target.value = "";
+    try {
+      const ab = await file.arrayBuffer();
+      const buffer = await decodeAudioBuffer(ab);
+      setMusic({ name: file.name, buffer, url: URL.createObjectURL(file) });
+      setSt(`✅ Music loaded: ${file.name} (${fmtTime(buffer.duration)})`);
+    } catch (err) { setSt("⚠️ Could not decode that audio file: " + err.message); }
+  };
+  const genMusic = async () => {
+    if (!ai33Key) { setSt("⚠️ Add your AI33 API key in Settings to generate music with Suno"); return; }
+    const prompt = musicPrompt.trim() || `Instrumental background underscore for a ${niche.name} YouTube video about ${ctx.topic}. Cinematic, subtle, no vocals.`;
+    setMusicProg(0); setBusy("music"); setSt("🎼 Suno composing (1–3 min)...");
+    try {
+      const { arrayBuffer, title } = await ai33Suno(ai33Base || AI33_DEFAULT_BASE, ai33Key, { prompt, instrumental: true, onProgress: p => setMusicProg(p) });
+      const buffer = await decodeAudioBuffer(arrayBuffer.slice(0));
+      setMusic({ name: title, buffer, url: URL.createObjectURL(new Blob([arrayBuffer], { type: "audio/mpeg" })) });
+      setSt(`✅ Suno track ready: ${title} (${fmtTime(buffer.duration)})`);
+    } catch (err) { setSt("⚠️ " + err.message); }
+    setMusicProg(-1); setBusy("");
+  };
+  const musicPreviewRef = useRef(null);
+  const previewMusic = () => {
+    if (musicPreviewRef.current) { musicPreviewRef.current.pause(); musicPreviewRef.current = null; return; }
+    const a = new Audio(music.url); a.volume = 0.6; a.play();
+    musicPreviewRef.current = a;
+    a.onended = () => { musicPreviewRef.current = null; };
+  };
+
   // ---- Stage 5: Render ----
   const doRender = async () => {
     if (!scenes.length) { setSt("⚠️ Build the storyboard first"); return; }
@@ -245,7 +283,7 @@ export default function Studio({ niche, ctx, clKey, gemKey, pexKey, pixKey, covK
         vidEl: s.video?.blobUrl ? await loadVideoEl(s.video.blobUrl).catch(() => null) : null,
       });
       const w = +res, h = res === "1920" ? 1080 : 720;
-      const out = await renderVideo({ shots: prepared, audioSegs: segsOut, total, style, width: w, height: h, subtitles: subs, onProgress: p => setRenderProg(p) });
+      const out = await renderVideo({ shots: prepared, audioSegs: segsOut, total, music: music ? { buffer: music.buffer, volume: musicVol } : null, style, width: w, height: h, subtitles: subs, onProgress: p => setRenderProg(p) });
       setVideo({ url: URL.createObjectURL(out.blob), ext: out.ext, duration: out.duration, size: out.blob.size });
       setSt(`✅ Video rendered — ${fmtTime(out.duration)} · ${(out.blob.size / 1048576).toFixed(1)} MB (${out.ext.toUpperCase()})`);
     } catch (e) { setSt("⚠️ " + e.message); }
@@ -346,6 +384,7 @@ export default function Studio({ niche, ctx, clKey, gemKey, pexKey, pixKey, covK
 
     {st && <p className={`yt-st ${st[0] === "⚠" ? "err" : st[0] === "✅" ? "ok" : ""}`}>{st}</p>}
 
+    <div ref={panelRef}>
     {/* STEP 1 — SCRIPT */}
     {step === 0 && <div className="yt-card">
       <div className="yt-card-h"><span className="yt-card-ht">📝 Full Narration Script</span>
@@ -450,6 +489,24 @@ export default function Studio({ niche, ctx, clKey, gemKey, pexKey, pixKey, covK
     {/* STEP 5 — RENDER */}
     {step === 4 && <div className="yt-card">
       <div className="yt-card-ht">🎞️ Render Final Video</div>
+      <div className="vs-music">
+        <div className="vs-music-head">🎵 Background Music <span className="yt-hint" style={{margin:0}}>ducked under the voiceover, auto fade-out</span></div>
+        {music ? <div className="vs-music-row">
+          <span className="vs-music-name">🎵 {music.name} · {fmtTime(music.buffer.duration)}{music.buffer.duration < totalRuntime() ? " (loops)" : ""}</span>
+          <button className="yt-btn-remake" onClick={previewMusic}>▶ / ⏸</button>
+          <label className="vs-music-vol">Vol {Math.round(musicVol * 100)}%
+            <input type="range" min="0" max="50" value={Math.round(musicVol * 100)} onChange={e => setMusicVol(+e.target.value / 100)}/>
+          </label>
+          <button className="yt-x" onClick={() => setMusic(null)}>✕</button>
+        </div> : <div className="vs-music-add">
+          <label className="yt-btn-o" style={{ cursor: "pointer" }}>
+            <input type="file" accept="audio/*" style={{ display: "none" }} onChange={onMusicUpload}/>
+            ⬆ Upload your music
+          </label>
+          <input className="yt-input" placeholder="…or describe a track for Suno (e.g. tense cinematic documentary underscore, no vocals)" value={musicPrompt} onChange={e => setMusicPrompt(e.target.value)}/>
+          <button className={`yt-btn ${busy === "music" ? "yt-btn-ld" : ""}`} onClick={genMusic} disabled={busy === "music" || !ai33Key} title={!ai33Key ? "Needs AI33 API key" : ""}>{busy === "music" ? `⏳ ${musicProg > 0 ? musicProg + "%" : "Composing..."}` : "🎼 Generate (Suno)"}</button>
+        </div>}
+      </div>
       <p className="yt-hint">Renders in-browser in real time (≈{fmtTime(totalRuntime())}). Fast 3-5s cuts, {style === "doodle" ? "hard cuts (doodle rule)" : "Ken Burns on stills, real clips play live"}, karaoke subtitles {subs ? "ON" : "OFF"}. Keep the tab focused. {pickMime().includes("mp4") ? "Output: MP4." : "This browser records WebM (YouTube accepts it); Chrome outputs MP4."}</p>
       <div className="vs-render-ctrl">
         <div><label className="yt-label">Resolution</label><select className="yt-sel" value={res} onChange={e => setRes(e.target.value)} disabled={busy === "render"}><option value="1280">720p (faster)</option><option value="1920">1080p</option></select></div>
@@ -481,27 +538,10 @@ export default function Studio({ niche, ctx, clKey, gemKey, pexKey, pixKey, covK
       </div>
     </div>}
 
+    </div>
     {voiceModal && <VoiceModal voiceSel={voiceSel} pick={pickVoice} close={() => setVoiceModal(false)} gemKey={gemKey} ai33Key={ai33Key} ai33Base={ai33Base}/>}
     <style>{STUDIO_CSS}</style>
   </div>);
-}
-
-// Shared SEO display (also used by the Dashboard board)
-export function SeoView({ seo, compact }) {
-  const [cp, setCp] = useState("");
-  const copy = (t, l) => { navigator.clipboard.writeText(t); setCp(l); setTimeout(() => setCp(""), 1500); };
-  return (<>
-    <div className="yt-opt-section"><div className="yt-opt-h"><span className="yt-opt-label">📌 Titles</span><button className="yt-btn-cp-sm" onClick={() => copy((seo.titles || []).join("\n"), "ts")}>{cp === "ts" ? "✅" : "📋"}</button></div>
-      {(seo.titles || []).map((t, i) => <div key={i} className="yt-opt-title" onClick={() => copy(t, "t" + i)}><span className="yt-opt-num">{i + 1}</span><span>{t}</span>{cp === "t" + i && <span className="yt-opt-copied">✅</span>}</div>)}</div>
-    <div className="yt-opt-section"><div className="yt-opt-h"><span className="yt-opt-label">📝 Description</span><button className="yt-btn-cp-sm" onClick={() => copy(seo.description || "", "d")}>{cp === "d" ? "✅" : "📋"}</button></div>
-      <pre className="yt-pre yt-pre-sm">{seo.description}</pre></div>
-    {(seo.chapters || []).length > 0 && <div className="yt-opt-section"><div className="yt-opt-h"><span className="yt-opt-label">⏱ Chapters</span><button className="yt-btn-cp-sm" onClick={() => copy(seo.chapters.join("\n"), "c")}>{cp === "c" ? "✅" : "📋"}</button></div>
-      <pre className="yt-pre yt-pre-sm">{seo.chapters.join("\n")}</pre></div>}
-    <div className="yt-opt-section"><div className="yt-opt-h"><span className="yt-opt-label">🏷️ Tags</span><button className="yt-btn-cp-sm" onClick={() => copy((seo.tags || []).join(", "), "g")}>{cp === "g" ? "✅" : "📋"}</button></div>
-      <div className="yt-opt-tags">{(seo.tags || []).map((t, i) => <span key={i} className="yt-opt-tag" onClick={() => copy(t, "g" + i)}>{t}</span>)}</div></div>
-    {seo.pinnedComment && <div className="yt-opt-section"><div className="yt-opt-h"><span className="yt-opt-label">📍 Pinned Comment</span><button className="yt-btn-cp-sm" onClick={() => copy(seo.pinnedComment, "p")}>{cp === "p" ? "✅" : "📋"}</button></div><pre className="yt-pre yt-pre-sm">{seo.pinnedComment}</pre></div>}
-    {(seo.credits || []).length > 0 && !compact && <div className="yt-opt-section"><div className="yt-opt-h"><span className="yt-opt-label">🙏 Attribution</span><button className="yt-btn-cp-sm" onClick={() => copy(seo.credits.join("\n"), "cr")}>{cp === "cr" ? "✅" : "📋"}</button></div><pre className="yt-pre yt-pre-sm">{seo.credits.join("\n")}</pre></div>}
-  </>);
 }
 
 // ---- Voice selection modal: Gemini + ai33.pro (ElevenLabs / MiniMax / Fish) + cloning ----
@@ -686,6 +726,14 @@ const STUDIO_CSS = `
 .vs-vo-row{display:flex;align-items:center;gap:10px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius3);padding:8px 12px}
 .vs-vo-text{flex:1;font-size:12px;color:var(--text2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .vs-vo-dur{font-size:11px;font-family:var(--mono);color:var(--text3);min-width:38px;text-align:right}
+.vs-music{margin-top:14px;padding:14px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius2)}
+.vs-music-head{font-size:13px;font-weight:700;color:var(--text);display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap}
+.vs-music-row{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.vs-music-name{font-size:12px;color:var(--text2);font-weight:600}
+.vs-music-vol{display:flex;align-items:center;gap:8px;font-size:11px;color:var(--text3);font-weight:600}
+.vs-music-vol input{accent-color:var(--red);width:120px}
+.vs-music-add{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.vs-music-add .yt-input{flex:1;min-width:220px}
 .vs-render-ctrl{display:flex;gap:16px;align-items:end;margin-top:14px;flex-wrap:wrap}
 .vs-progress{position:relative;height:26px;background:var(--surface2);border:1px solid var(--border);border-radius:13px;margin-top:16px;overflow:hidden}
 .vs-progress-fill{height:100%;background:linear-gradient(90deg,var(--red),#ff7a3c);transition:width .3s;border-radius:13px}
