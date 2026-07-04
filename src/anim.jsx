@@ -12,7 +12,7 @@ export function revealChildren(el, opts = {}) {
   const targets = Array.from(el.children);
   if (!targets.length) return;
   targets.forEach(t => { t.style.opacity = "0"; });
-  anime({ targets, translateY: [16, 0], opacity: [0, 1], delay: anime.stagger(45), duration: 550, easing: EASE, ...opts });
+  anime({ targets, translateY: [6, 0], opacity: [0, 1], delay: anime.stagger(24), duration: 320, easing: EASE, ...opts });
 }
 
 // Hook: reveal the ref'd container's children when deps change.
@@ -27,7 +27,7 @@ export function usePopIn(deps = []) {
   const ref = useRef(null);
   useEffect(() => {
     if (!ref.current) return;
-    anime({ targets: ref.current, scale: [0.96, 1], opacity: [0, 1], duration: 340, easing: EASE });
+    anime({ targets: ref.current, scale: [0.995, 1], opacity: [0, 1], duration: 200, easing: EASE });
   }, deps);
   return ref;
 }
@@ -38,7 +38,7 @@ export function Counter({ value, format }) {
   useEffect(() => {
     const o = { v: 0 };
     const a = anime({
-      targets: o, v: value || 0, round: 1, duration: 1000, easing: "easeOutExpo",
+      targets: o, v: value || 0, round: 1, duration: 700, easing: "easeOutExpo",
       update: () => { if (ref.current) ref.current.textContent = format ? format(o.v) : String(o.v); },
     });
     return () => a.pause();
@@ -51,7 +51,7 @@ export function animateScore(el, barEl, score) {
   if (!el) return;
   const o = { v: 0 };
   anime({
-    targets: o, v: score, round: 1, duration: 1200, easing: "easeOutExpo",
+    targets: o, v: score, round: 1, duration: 800, easing: "easeOutExpo",
     update: () => {
       el.textContent = o.v;
       if (barEl) barEl.style.width = o.v + "%";

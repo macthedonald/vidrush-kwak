@@ -1,14 +1,14 @@
-# VidRush v8 Studio
+# VidRush
 
-A self-hosted vidrush.ai-style YouTube content factory that runs entirely in your browser — from **niche discovery and video ideation to a rendered video download, voiceover MP3, background music, and a full SEO package**. No backend: your API keys stay in localStorage and every call goes straight from the browser to the provider.
+A self-hosted YouTube content studio that runs entirely in your browser — from niche discovery and video ideation to a rendered video, voiceover MP3, background music, and a full SEO package. No backend: API keys live in localStorage (set them on the Settings page) and every call goes straight from the browser to the provider.
 
-Built production-lean: code-split pages (React.lazy), an error boundary around every route, and an anime.js motion system (page reveals, animated counters, score gauges, step transitions).
+Clean, quiet interface: light theme, left-sidebar navigation (Home / Niche finder / Settings / your niches with nested topics), code-split pages, an error boundary around every route, and subtle motion.
 
 ## The pipeline
 
-**🔭 Niche Finder (VidIQ-style)**
+**Niche finder**
 - Add niche keywords by hand, or type a broad topic and let AI suggest 8 sub-niches.
-- Each keyword is scored 0–100 on live YouTube data (last 30/90/180 days, region-selectable): **Demand** (log-scaled average views), **Opportunity** (small channels winning + outlier count), **Velocity** (views/day), minus **Competition** (share of 1M+ sub channels), plus engagement.
+- Built for long-form first, with a Shorts filter: real durations are parsed from the API and Shorts (≤3 min) are excluded from long-form analysis (or exclusively targeted in Shorts mode). Each keyword is scored 0–100 on live YouTube data (last 30/90/180 days, region-selectable): **Demand** (log-scaled average views), **Opportunity** (small channels winning + outlier count), **Velocity** (views/day), minus **Competition** (share of 1M+ sub channels), plus engagement.
 - Shows outlier videos (views ≫ channel subs) and **breakout channels**.
 - **Save niche** or **Research this niche →** — saving auto-seeds the breakout channels as competitors, and Research picks up from there: scan → topics → brief → Studio. One unbroken flow from "does this niche work?" to a finished video.
 
@@ -17,20 +17,20 @@ Built production-lean: code-split pages (React.lazy), an error boundary around e
 2. Outlier ranking (views vs channel average) + AI topic suggestions from real competitor data.
 3. Creative brief generator (4-pillar prompt), title/description/tag optimizer, AI thumbnail lab (reference-cloning or from scratch).
 
-**Storyboard Studio (click "🎬 Storyboard Studio" on any topic, or 🎬 on a sidebar topic)**
-1. **📝 Script** — writes the complete word-for-word narration (hook, curiosity loops, retention hooks, CTA), guided by the creative brief built from your competitor research. Editable.
-2. **🎬 Storyboard** — splits the script verbatim into fast **3–5 second shots** (8–14 words each), every shot with its own visual prompt, b-roll search queries, and optional overlay text. Fully editable, per-shot delete.
-3. **🖼️ Visuals** — one 16:9 frame or clip per shot, in one of three looks:
+**Storyboard Studio** (from any topic, or the play icon next to a sidebar topic)
+1. **Script** — writes the complete word-for-word narration (hook, curiosity loops, retention hooks, CTA), guided by the creative brief built from your competitor research. Editable.
+2. **Storyboard** — splits the script verbatim into fast **3–5 second shots** (8–14 words each), every shot with its own visual prompt, b-roll search queries, and optional overlay text. Fully editable, per-shot delete.
+3. **Visuals** — one 16:9 frame or clip per shot, in one of three looks:
    - **Cinematic AI** — photoreal Gemini frames, Ken Burns motion, fast crossfades
    - **Real Assets** — sourcing cascade: **Coverr video → Pixabay video/photo → Pexels fallback**, with a per-shot picker modal and automatic attribution. Real clips play live inside the final render.
    - **Stickman Doodle** — hand-drawn marker frames, hard cuts, no zoom
-4. **🎙️ Voiceover** — voiced per script section for natural prosody, then beat-synced across the 3–5s shots by word count. Voice picker modal with **all 30 Gemini TTS voices**, plus **ElevenLabs, MiniMax, and Fish Audio voices via your AI33 account** (live-searchable) — including **voice cloning** (upload a ≤10MB sample, it's cloned on AI33 and appears under My Clones, deletable). Preview any voice before committing. Download the full voiceover as **MP3** or WAV.
-5. **🎞️ Render** — in-browser renderer (canvas + MediaRecorder): fast cuts, Ken Burns on stills, real clips playing, word-level **karaoke subtitles**, 720p/1080p. **Background music**: upload your own track (any audio format) or generate an instrumental with **Suno via AI33** — looped, volume-ducked under the voiceover, auto fade-out. Downloads as **MP4** (Chrome/Safari) or WebM. Renders in real time — keep the tab focused.
-6. **📦 SEO Package** — titles, description, tags, pinned comment, **auto-timestamped chapters**, and collected asset credits. Every generated package is **pinned to the Dashboard home** with one-tap copy buttons, and downloadable as a `.zip`.
+4. **Voiceover** — voiced per script section for natural prosody, then beat-synced across the 3–5s shots by word count. Voice picker modal with **all 30 Gemini TTS voices**, plus **ElevenLabs, MiniMax, and Fish Audio voices via your AI33 account** (live-searchable) — including **voice cloning** (upload a ≤10MB sample, it's cloned on AI33 and appears under My Clones, deletable). Preview any voice before committing. Download the full voiceover as **MP3** or WAV.
+5. **Render** — in-browser renderer (canvas + MediaRecorder): fast cuts, Ken Burns on stills, real clips playing, word-level **karaoke subtitles**, 720p/1080p. **Background music**: upload your own track (any audio format) or generate an instrumental with **Suno via AI33** — looped, volume-ducked under the voiceover, auto fade-out. Downloads as **MP4** (Chrome/Safari) or WebM. Renders in real time — keep the tab focused.
+6. **SEO Package** — titles, description, tags, pinned comment, **auto-timestamped chapters**, and collected asset credits. Every generated package is **pinned to the Dashboard home** with one-tap copy buttons, and downloadable as a `.zip`.
 
-**⚡ Autopilot** runs script → storyboard → all visuals → all voiceover → SEO in one click; you review and hit Render.
+**Autopilot** runs script → storyboard → all visuals → all voiceover → SEO in one click; you review and hit Render.
 
-## API keys (Home page → API Keys)
+## API keys (Settings page)
 
 | Key | Used for | Required |
 |---|---|---|

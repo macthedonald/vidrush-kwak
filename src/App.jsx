@@ -12,8 +12,8 @@ class ErrorBoundary extends Component {
   static getDerivedStateFromError(err) { return { err }; }
   render() {
     if (this.state.err) return (<div className="yt-page" style={{ padding: 40, textAlign: "center" }}>
-      <h2 style={{ marginBottom: 10 }}>😵 Something broke</h2>
-      <p style={{ color: "rgba(255,255,255,.55)", fontSize: 14, marginBottom: 18 }}>{String(this.state.err?.message || this.state.err)}</p>
+      <h2 style={{ marginBottom: 10 }}>Something went wrong</h2>
+      <p style={{ color: "#6f6e69", fontSize: 14, marginBottom: 18 }}>{String(this.state.err?.message || this.state.err)}</p>
       <button className="yt-btn" onClick={() => this.setState({ err: null })}>Try again</button>
     </div>);
     return this.props.children;
@@ -165,7 +165,7 @@ const SYS_THREF = `Thumbnail analyst. Analyze this YouTube thumbnail image. Desc
 
 Then write 3 NEW thumbnail prompts for the given topic that replicate this exact visual style. Each prompt: 1 paragraph, "hyperrealistic cinematic", end "no text, 16:9".`;
 
-const P = { HOME: 0, NICHE: 1, GEN: 2, STUDIO: 3, FINDER: 4 };
+const P = { HOME: 0, NICHE: 1, GEN: 2, STUDIO: 3, FINDER: 4, SETTINGS: 5 };
 
 export default function App() {
   const [pg, setPg] = useState(P.HOME);
@@ -260,45 +260,50 @@ export default function App() {
     }
   };
 
+  const activeNiche = (pg===P.NICHE||pg===P.GEN||pg===P.STUDIO) ? niche : null;
+
   return (<div className="yt-app">
-    <header className="yt-topbar">
-      <div className="yt-topbar-l">
-        <button className="yt-hamburger" onClick={()=>setSb(!sb)}>
-          <svg width="24" height="24" viewBox="0 0 24 24"><path fill="currentColor" d="M3 18h18v-2H3v2zm0-5h18v-2H3v2zm0-7v2h18V6H3z"/></svg>
-        </button>
-        <div className="yt-logo" onClick={()=>setPg(P.HOME)}>
-          <svg width="30" height="22" viewBox="0 0 90 65"><path fill="#FF0000" d="M88.1 17.3c-1-3.9-4-7-7.8-8C73.3 7.5 45 7.5 45 7.5s-28.3 0-35.3 1.8c-3.8 1-6.8 4.1-7.8 8C0 24.4 0 39.2 0 39.2s0 14.8 1.9 21.9c1 3.9 4 6.9 7.8 7.9 7 1.8 35.3 1.8 35.3 1.8s28.3 0 35.3-1.8c3.8-1 6.8-4 7.8-7.9 1.9-7.1 1.9-21.9 1.9-21.9s0-14.8-1.9-21.9z"/><path fill="#FFF" d="M36 52V28l23.5 12z"/></svg>
-          <span>VidRush</span><span className="yt-ver-badge">v8</span>
+    <div className="nv-shell">
+      {sb ? <aside className="nv-side">
+        <div className="nv-side-top">
+          <button className="nv-brand" onClick={()=>setPg(P.HOME)}><span className="nv-mark">V</span>VidRush</button>
+          <button className="nv-collapse" onClick={()=>setSb(false)} title="Collapse sidebar">
+            <svg width="14" height="14" viewBox="0 0 16 16"><path fill="currentColor" d="M10.7 2.3a1 1 0 0 1 0 1.4L6.4 8l4.3 4.3a1 1 0 1 1-1.4 1.4l-5-5a1 1 0 0 1 0-1.4l5-5a1 1 0 0 1 1.4 0Z"/></svg>
+          </button>
         </div>
-        <nav className="yt-nav">
-          <button className={pg===P.HOME?"active":""} onClick={()=>setPg(P.HOME)}>Dashboard</button>
-          <button className={pg===P.FINDER?"active":""} onClick={()=>setPg(P.FINDER)}>🔭 Niche Finder</button>
-          {niche && <button className={pg===P.NICHE||pg===P.GEN?"active":""} onClick={()=>setPg(P.NICHE)}>📊 Research</button>}
-          {studioCtx && niche && <button className={pg===P.STUDIO?"active":""} onClick={()=>setPg(P.STUDIO)}>🎬 Studio</button>}
+        <nav className="nv-nav">
+          <button className={pg===P.HOME?"on":""} onClick={()=>setPg(P.HOME)}>Home</button>
+          <button className={pg===P.FINDER?"on":""} onClick={()=>setPg(P.FINDER)}>Niche finder</button>
+          <button className={pg===P.SETTINGS?"on":""} onClick={()=>setPg(P.SETTINGS)}>Settings</button>
         </nav>
-      </div>
-      <div className="yt-topbar-r">{niche && pg!==P.HOME && pg!==P.FINDER && <span className="yt-niche-pill">{niche.name}</span>}</div>
-    </header>
-    <div className="yt-layout">
-      {sb && <aside className="yt-sidebar">
-        <div className="yt-sb-section">
-          <div className="yt-sb-title">Used Topics {hist.length > 0 && <span className="yt-sb-badge">{hist.length}</span>}</div>
-          {hist.length === 0 ? <p className="yt-sb-empty">{niche ? "No topics in this niche yet" : "Select a niche first"}</p> :
-            <div className="yt-sb-list">{hist.map(h => <div key={h.id} className="yt-sb-item yt-sb-clickable">
-              <div className="yt-sb-item-top">
-                <div className="yt-sb-item-content" onClick={()=>h.prompt&&openSaved(h)}>
-                  <div className="yt-sb-item-t"><span className="yt-sb-version">V{h.version}</span>{h.topic}</div>
-                  <div className="yt-sb-item-m">{h.date}{h.prompt ? " · 📝" : ""}{h.usedItems?.length ? ` · 🧬${h.usedItems.length}` : ""}</div>
-                </div>
-                <button className="yt-sb-remake" onClick={(e)=>{e.stopPropagation();openStudioFromHist(h);}} title="Open in Storyboard Studio">🎬</button>
-                <button className="yt-sb-remake" onClick={(e)=>{e.stopPropagation();remakeTopic(h);}} title="Remake with new items">🔄</button>
-                <button className="yt-sb-del" onClick={(e)=>{e.stopPropagation();if(confirm("Delete this topic?"))deleteH(niche.id,h.id);}} title="Delete topic">✕</button>
-              </div>
-            </div>)}</div>}
+        <div className="nv-sec">Niches</div>
+        <div className="nv-list">
+          {niches.length===0 && <p className="nv-side-empty">Nothing here yet</p>}
+          {niches.map(n=><div key={n.id}>
+            <button className={`nv-item ${activeNiche?.id===n.id?"on":""}`} onClick={()=>{openNiche(n);setPg(P.NICHE);}}>{n.name}</button>
+            {activeNiche?.id===n.id && hist.length>0 && <div className="nv-topics">
+              {hist.map(h=><div key={h.id} className="nv-topic">
+                <button className="nv-topic-t" title={h.topic} onClick={()=>h.prompt?openSaved(h):remakeTopic(h)}>{h.topic}</button>
+                <button className="nv-topic-b" title="Open in Studio" onClick={()=>openStudioFromHist(h)}>
+                  <svg width="11" height="11" viewBox="0 0 16 16"><path fill="currentColor" d="M5.3 2.8a1 1 0 0 1 1.5-.9l7 4.2a1 1 0 0 1 0 1.8l-7 4.2a1 1 0 0 1-1.5-.9V2.8Z"/></svg>
+                </button>
+                <button className="nv-topic-b" title="Remake with fresh items" onClick={()=>remakeTopic(h)}>
+                  <svg width="11" height="11" viewBox="0 0 16 16"><path fill="currentColor" d="M8 3a5 5 0 1 0 4.9 6h-1.6A3.5 3.5 0 1 1 8 4.5c.9 0 1.8.4 2.4 1L9 7h4V3l-1.5 1.5A5 5 0 0 0 8 3Z"/></svg>
+                </button>
+                <button className="nv-topic-b nv-topic-x" title="Delete" onClick={()=>{if(confirm("Delete this topic?"))deleteH(n.id,h.id);}}>
+                  <svg width="11" height="11" viewBox="0 0 16 16"><path fill="currentColor" d="M4.3 4.3a1 1 0 0 1 1.4 0L8 6.6l2.3-2.3a1 1 0 1 1 1.4 1.4L9.4 8l2.3 2.3a1 1 0 1 1-1.4 1.4L8 9.4l-2.3 2.3a1 1 0 1 1-1.4-1.4L6.6 8 4.3 5.7a1 1 0 0 1 0-1.4Z"/></svg>
+                </button>
+              </div>)}
+            </div>}
+          </div>)}
         </div>
-      </aside>}
-      <main className={`yt-main ${sb?'':'yt-main-full'}`}><ErrorBoundary><Suspense fallback={<PageLoader/>}>
-        {pg===P.HOME && <Home niches={niches} keys={{ytKey,clKey,gemKey,pexKey,pixKey,covKey,ai33Key,ai33Base}} setKeys={k=>{setYtKey(k.ytKey);ss("vr6-yt",k.ytKey);setClKey(k.clKey);ss("vr6-cl",k.clKey);setGemKey(k.gemKey);ss("vr6-gem",k.gemKey);setPexKey(k.pexKey);ss("vr7-pex",k.pexKey);setPixKey(k.pixKey);ss("vr7-pix",k.pixKey);setCovKey(k.covKey);ss("vr7-cov",k.covKey);setAi33Key(k.ai33Key);ss("vr7-a33",k.ai33Key);setAi33Base(k.ai33Base);ss("vr7-a33b",k.ai33Base);}} sn={sn} go={n=>{openNiche(n);setPg(P.NICHE);}} goFinder={()=>setPg(P.FINDER)} />}
+      </aside>
+      : <button className="nv-expand" onClick={()=>setSb(true)} title="Open sidebar">
+          <svg width="14" height="14" viewBox="0 0 16 16"><path fill="currentColor" d="M5.3 2.3a1 1 0 0 0 0 1.4L9.6 8l-4.3 4.3a1 1 0 1 0 1.4 1.4l5-5a1 1 0 0 0 0-1.4l-5-5a1 1 0 0 0-1.4 0Z"/></svg>
+        </button>}
+      <main className="yt-main"><ErrorBoundary><Suspense fallback={<PageLoader/>}>
+        {pg===P.HOME && <Home niches={niches} sn={sn} go={n=>{openNiche(n);setPg(P.NICHE);}} goFinder={()=>setPg(P.FINDER)} goSettings={()=>setPg(P.SETTINGS)} keysReady={!!(ytKey&&clKey&&gemKey)} />}
+        {pg===P.SETTINGS && <SettingsPg keys={{ytKey,clKey,gemKey,pexKey,pixKey,covKey,ai33Key,ai33Base}} setKeys={k=>{setYtKey(k.ytKey);ss("vr6-yt",k.ytKey);setClKey(k.clKey);ss("vr6-cl",k.clKey);setGemKey(k.gemKey);ss("vr6-gem",k.gemKey);setPexKey(k.pexKey);ss("vr7-pex",k.pexKey);setPixKey(k.pixKey);ss("vr7-pix",k.pixKey);setCovKey(k.covKey);ss("vr7-cov",k.covKey);setAi33Key(k.ai33Key);ss("vr7-a33",k.ai33Key);setAi33Base(k.ai33Base);ss("vr7-a33b",k.ai33Base);}} />}
         {pg===P.NICHE && niche && <NichePg niche={niches.find(x=>x.id===niche.id)||niche} niches={niches} ytKey={ytKey} clKey={clKey} sn={sn} back={()=>{setNiche(null);setPg(P.HOME);}} gen={(t,v,refThumb)=>{const fresh=ls("vr6-niches",[]).find(x=>x.id===niche.id)||niche;setNiche({...fresh,topic:t,topicVersion:v||1,refThumb:refThumb||""});setPg(P.GEN);}} />}
         {pg===P.GEN && niche && <GenPg niche={niche} topic={niche.topic} version={niche.topicVersion||1} clKey={clKey} gemKey={gemKey} addH={addH} updateH={updateH} back={()=>setPg(P.NICHE)} goStudio={ctx=>{setStudioCtx(ctx);setPg(P.STUDIO);}} savedPrompt={niche.savedPrompt} savedThumb={niche.savedThumb} savedHistId={niche.savedHistId} refThumb={niche.refThumb} savedThumbs={niche.savedThumbs} savedOptTitles={niche.savedOptTitles} savedOptDesc={niche.savedOptDesc} savedOptTags={niche.savedOptTags} savedThPrompt={niche.savedThPrompt} />}
         {pg===P.STUDIO && niche && studioCtx && <Studio niche={niche} ctx={studioCtx} clKey={clKey} gemKey={gemKey} pexKey={pexKey} pixKey={pixKey} covKey={covKey} ai33Key={ai33Key} ai33Base={ai33Base} addH={addH} updateH={updateH} back={()=>setPg(P.GEN)} />}
@@ -309,50 +314,110 @@ export default function App() {
   </div>);
 }
 
-function Home({ niches, keys, setKeys, sn, go, goFinder }) {
+const P_LABELS = { ytKey:"YouTube Data API", clKey:"Anthropic", gemKey:"Google Gemini", ai33Key:"AI33", ai33Base:"AI33 base URL", covKey:"Coverr", pixKey:"Pixabay", pexKey:"Pexels" };
+
+function SettingsPg({ keys, setKeys }) {
+  const [k, setK] = useState(keys);
+  const [saved, setSaved] = useState(false);
+  const row = (field, label, desc, ph, type="password") => (
+    <div className="nv-set-row" key={field}>
+      <div className="nv-set-info">
+        <div className="nv-set-label">{label}{type === "password" && keys[field] ? <span className="nv-set-ok">Connected</span> : null}</div>
+        <div className="nv-set-desc">{desc}</div>
+      </div>
+      <input className="yt-input nv-set-input" type={type} placeholder={ph} value={k[field]} onChange={e=>{setK(prev=>({...prev,[field]:e.target.value}));setSaved(false);}}/>
+    </div>
+  );
+  return (<div className="yt-page nv-narrow">
+    <h1 className="yt-page-title">Settings</h1>
+    <p className="yt-sub">Connect the services VidRush uses. Keys are stored in this browser only — they never touch a server of ours.</p>
+
+    <div className="nv-set-group">
+      <div className="nv-set-group-t">Core</div>
+      {row("ytKey","YouTube Data API v3","Competitor scanning, outliers, and the niche finder.","AIza…")}
+      {row("clKey","Anthropic","Topic research, scripts, storyboards, and SEO copy.","sk-ant-…")}
+      {row("gemKey","Google Gemini","Scene frames, thumbnails, and the built-in voices.","AIza…")}
+    </div>
+
+    <div className="nv-set-group">
+      <div className="nv-set-group-t">Voice & music</div>
+      {row("ai33Key","AI33","ElevenLabs, MiniMax and Fish Audio voices, voice cloning, and Suno music.","xi-api-key…")}
+      {row("ai33Base","AI33 base URL","Only change this if your AI33 dashboard says so.","https://api.ai33.pro","text")}
+    </div>
+
+    <div className="nv-set-group">
+      <div className="nv-set-group-t">Stock footage</div>
+      {row("covKey","Coverr","Primary source for real b-roll clips.","Bearer key…")}
+      {row("pixKey","Pixabay","Primary source for real clips and photos.","4859…")}
+      {row("pexKey","Pexels","Fallback source when the others come up empty.","563492ad…")}
+    </div>
+
+    <div className="nv-set-foot">
+      <button className="yt-btn" onClick={()=>{setKeys(k);setSaved(true);}}>Save changes</button>
+      {saved && <span className="nv-set-saved">Saved</span>}
+    </div>
+  </div>);
+}
+
+function Home({ niches, sn, go, goFinder, goSettings, keysReady }) {
   const pageRef = useReveal([]);
   const [adding, setAdding] = useState(false);
   const [name, setName] = useState(""); const [desc, setDesc] = useState(""); const [cover, setCover] = useState("");
-  const [showK, setShowK] = useState(!keys.ytKey||!keys.clKey);
-  const [k, setK] = useState(keys);
   const [openSeo, setOpenSeo] = useState(null);
-  const kIn = (field, label, ph, type="password") => <div><label className="yt-label">{label}</label><input className="yt-input" type={type} placeholder={ph} value={k[field]} onChange={e=>setK(prev=>({...prev,[field]:e.target.value}))}/></div>;
   const seoPkgs = niches.flatMap(n=>(n.history||[]).filter(h=>h.seo).map(h=>({nicheName:n.name,...h})));
   const handleCover = (e) => { const f=e.target.files[0]; if(!f) return; const r=new FileReader(); r.onload=ev=>setCover(ev.target.result); r.readAsDataURL(f); e.target.value=''; };
   const add = () => { if(!name.trim()) return; sn([...niches,{id:Date.now(),name:name.trim(),desc:desc.trim(),cover:cover||"",channels:[],history:[]}]); setName(""); setDesc(""); setCover(""); setAdding(false); };
 
   return (<div className="yt-page" ref={pageRef}>
-    <div className="yt-hero">
-      <div className="yt-hero-text">
-        <h1 className="yt-hero-title">Welcome to VidRush</h1>
-        <p className="yt-hero-sub">Find a niche. Research competitors. Storyboard, voice, render, and rank — all in one place.</p>
-        <button className="yt-btn yt-hero-cta" onClick={goFinder}>🔭 Find a winning niche →</button>
-      </div>
-      <div className="yt-hero-stats">
-        <div className="yt-stat"><span className="yt-stat-num"><Counter value={niches.length}/></span><span className="yt-stat-label">Niches</span></div>
-        <div className="yt-stat"><span className="yt-stat-num"><Counter value={niches.reduce((s,n)=>s+(n.history?.length||0),0)}/></span><span className="yt-stat-label">Topics</span></div>
-        <div className="yt-stat"><span className="yt-stat-num"><Counter value={niches.reduce((s,n)=>s+(n.channels?.length||0),0)}/></span><span className="yt-stat-label">Channels</span></div>
-        <div className="yt-stat"><span className="yt-stat-num"><Counter value={niches.reduce((s,n)=>s+(n.history||[]).filter(h=>h.seo).length,0)}/></span><span className="yt-stat-label">SEO Packs</span></div>
-      </div>
+    <h1 className="yt-page-title nv-h1">Home</h1>
+    <p className="yt-sub">Everything from niche discovery to a finished, upload-ready video lives here.</p>
+
+    {!keysReady && <div className="nv-callout">
+      <div><b>Connect your services to get started.</b> VidRush needs at least YouTube, Anthropic, and Gemini keys.</div>
+      <button className="yt-btn-o" onClick={goSettings}>Open settings</button>
+    </div>}
+
+    <div className="nv-stats">
+      <div className="nv-stat"><span className="nv-stat-n"><Counter value={niches.length}/></span><span className="nv-stat-l">Niches</span></div>
+      <div className="nv-stat"><span className="nv-stat-n"><Counter value={niches.reduce((s,n)=>s+(n.history?.length||0),0)}/></span><span className="nv-stat-l">Topics</span></div>
+      <div className="nv-stat"><span className="nv-stat-n"><Counter value={niches.reduce((s,n)=>s+(n.channels?.length||0),0)}/></span><span className="nv-stat-l">Tracked channels</span></div>
+      <div className="nv-stat"><span className="nv-stat-n"><Counter value={niches.reduce((s,n)=>s+(n.history||[]).filter(h=>h.seo).length,0)}/></span><span className="nv-stat-l">SEO packs</span></div>
     </div>
-    <div className="yt-card">
-      <div className="yt-card-h" onClick={()=>setShowK(!showK)}><span className="yt-card-ht">🔑 API Keys {keys.ytKey&&keys.clKey&&keys.gemKey?"✅":"— Setup Required"}</span><span className="yt-chev">{showK?"▲":"▼"}</span></div>
-      {showK && <div className="yt-card-b">
-        <div className="yt-grid2">
-          {kIn("ytKey","YouTube API Key","AIza...")}
-          {kIn("clKey","Anthropic API Key","sk-ant-...")}
-          {kIn("gemKey","Gemini API Key (images + Gemini voices)","AIza...")}
-          {kIn("ai33Key","AI33 API Key (ElevenLabs / MiniMax / Fish voices + cloning)","xi-api-key value...")}
-          {kIn("covKey","Coverr API Key (real b-roll video, primary)","coverr key...")}
-          {kIn("pixKey","Pixabay API Key (real b-roll video/photo, primary)","4859...")}
-          {kIn("pexKey","Pexels API Key (real b-roll fallback)","563492ad...")}
-          {kIn("ai33Base","AI33 API Base URL","https://api.ai33.pro","text")}
+
+    <div className="yt-sec-h"><h2>Niches</h2><div className="yt-btn-row">
+      <button className="yt-btn-o" onClick={goFinder}>Find a niche</button>
+      <button className="yt-btn" onClick={()=>setAdding(true)}>New niche</button>
+    </div></div>
+    {adding && <div className="yt-card"><div className="yt-card-b" style={{marginTop:0}}>
+      <div className="yt-niche-form">
+        <div className="yt-niche-cover-upload">
+          <label className="yt-cover-drop">
+            <input type="file" accept="image/*" onChange={handleCover} style={{display:'none'}}/>
+            {cover ? <img src={cover} className="yt-cover-preview" alt=""/> : <span className="yt-cover-text">Add cover</span>}
+          </label>
         </div>
-        <button className="yt-btn" onClick={()=>{setKeys(k);setShowK(false);}}>Save Keys</button>
-        <p className="yt-hint">Stored locally in your browser. Never sent to our servers.</p>
-      </div>}
-    </div>
-    {seoPkgs.length>0&&<><div className="yt-sec-h"><h2>📦 SEO Packages</h2></div>
+        <div className="yt-niche-form-fields">
+          <div><label className="yt-label">Name</label><input className="yt-input" placeholder="e.g. Ancient Rome mysteries" value={name} onChange={e=>setName(e.target.value)} autoFocus/></div>
+          <div><label className="yt-label">Description</label><input className="yt-input" placeholder="One line on what this channel covers" value={desc} onChange={e=>setDesc(e.target.value)}/></div>
+        </div>
+      </div>
+      <div className="yt-btn-row" style={{marginTop:14}}><button className="yt-btn" onClick={add}>Create niche</button><button className="yt-btn-o" onClick={()=>{setAdding(false);setCover("");}}>Cancel</button></div>
+    </div></div>}
+    {niches.length===0&&!adding ? <div className="yt-empty-state">
+        <p className="yt-empty-title">No niches yet</p>
+        <p className="yt-empty-desc">Run the niche finder to scout opportunities, or create one by hand.</p>
+        <button className="yt-btn" style={{marginTop:14}} onClick={goFinder}>Open niche finder</button>
+      </div> :
+      <div className="yt-niche-grid">{niches.map(n=><div key={n.id} className="yt-niche-card" onClick={()=>go(n)}>
+        {n.cover && <div className="yt-niche-cover-wrap"><img src={n.cover} className="yt-niche-cover" alt=""/></div>}
+        <div className="yt-niche-card-body">
+          <div className="yt-niche-top"><h3>{n.name}</h3><button className="yt-x" onClick={e=>{e.stopPropagation();if(confirm("Delete niche?"))sn(niches.filter(x=>x.id!==n.id));}}>✕</button></div>
+          {n.desc&&<p className="yt-niche-desc">{n.desc}</p>}
+          <div className="yt-niche-meta"><span>{n.channels?.length||0} channels</span><span>{n.history?.length||0} topics</span></div>
+        </div>
+      </div>)}</div>}
+
+    {seoPkgs.length>0&&<><div className="yt-sec-h" style={{marginTop:36}}><h2>SEO packages</h2></div>
       <div className="yt-seo-board">{seoPkgs.map(p=><div key={p.id} className="yt-card yt-seo-card">
         <div className="yt-card-h" onClick={()=>setOpenSeo(openSeo===p.id?null:p.id)}>
           <span className="yt-card-ht">{p.topic}<span className="yt-seo-niche">{p.nicheName} · {p.date}</span></span>
@@ -360,31 +425,6 @@ function Home({ niches, keys, setKeys, sn, go, goFinder }) {
         </div>
         {openSeo===p.id&&<div className="yt-card-b"><SeoView seo={p.seo} compact/></div>}
       </div>)}</div></>}
-    <div className="yt-sec-h"><h2>Your Niches</h2><button className="yt-btn" onClick={()=>setAdding(true)}>+ New Niche</button></div>
-    {adding && <div className="yt-card yt-card-glow"><div className="yt-card-b">
-      <div className="yt-niche-form">
-        <div className="yt-niche-cover-upload">
-          <label className="yt-cover-drop">
-            <input type="file" accept="image/*" onChange={handleCover} style={{display:'none'}}/>
-            {cover ? <img src={cover} className="yt-cover-preview" alt=""/> : <><span className="yt-cover-icon">🖼</span><span className="yt-cover-text">Cover</span></>}
-          </label>
-        </div>
-        <div className="yt-niche-form-fields">
-          <div><label className="yt-label">Name</label><input className="yt-input" placeholder="e.g. Biblical Health" value={name} onChange={e=>setName(e.target.value)} autoFocus/></div>
-          <div><label className="yt-label">Description</label><input className="yt-input" placeholder="Short description" value={desc} onChange={e=>setDesc(e.target.value)}/></div>
-        </div>
-      </div>
-      <div className="yt-btn-row" style={{marginTop:14}}><button className="yt-btn" onClick={add}>Create Niche</button><button className="yt-btn-o" onClick={()=>{setAdding(false);setCover("");}}>Cancel</button></div>
-    </div></div>}
-    {niches.length===0&&!adding ? <div className="yt-empty-state"><div className="yt-empty-icon">🎯</div><p className="yt-empty-title">No niches yet</p><p className="yt-empty-desc">Create your first niche to start analyzing competitors</p></div> :
-      <div className="yt-niche-grid">{niches.map(n=><div key={n.id} className="yt-niche-card" onClick={()=>go(n)}>
-        {n.cover && <div className="yt-niche-cover-wrap"><img src={n.cover} className="yt-niche-cover" alt=""/></div>}
-        <div className="yt-niche-card-body">
-          <div className="yt-niche-top"><h3>{n.name}</h3><button className="yt-x" onClick={e=>{e.stopPropagation();if(confirm("Delete niche?"))sn(niches.filter(x=>x.id!==n.id));}}>✕</button></div>
-          {n.desc&&<p className="yt-niche-desc">{n.desc}</p>}
-          <div className="yt-niche-meta"><span>📺 {n.channels?.length||0} channels</span><span>📝 {n.history?.length||0} topics</span></div>
-        </div>
-      </div>)}</div>}
   </div>);
 }
 
@@ -412,9 +452,9 @@ function NichePg({ niche, niches, ytKey, clKey, sn, back, gen }) {
   useEffect(() => { if (chs.length && ytKey && !scanned) { setScanned(true); analyze(); } }, []);
 
   const analyze = async () => {
-    if(!ytKey){setSt("⚠️ Set YouTube API Key!");return;} if(chs.length===0){setSt("⚠️ Add channels!");return;}
+    if(!ytKey){setSt("⚠ Set YouTube API Key!");return;} if(chs.length===0){setSt("⚠ Add channels!");return;}
     setLd(true); setSt(""); setOuts([]); setTopics([]); let allO=[];
-    for(let i=0;i<chs.length;i++){ setSt(`📡 ${i+1}/${chs.length}: ${chs[i]}`); try { const id=await resolveChannel(chs[i],ytKey); const{name,videos}=await getVideos(id,ytKey,(n)=>setSt(`📡 ${i+1}/${chs.length}: ${chs[i]} (${n} videos...)`)); allO.push(...rankVideos(videos).map(v=>({...v,channel:name}))); } catch(e){ setSt(`⚠️ ${chs[i]}: ${e.message}`); await new Promise(r=>setTimeout(r,1200)); }}
+    for(let i=0;i<chs.length;i++){ setSt(`${i+1}/${chs.length}: ${chs[i]}`); try { const id=await resolveChannel(chs[i],ytKey); const{name,videos}=await getVideos(id,ytKey,(n)=>setSt(`${i+1}/${chs.length}: ${chs[i]} (${n} videos...)`)); allO.push(...rankVideos(videos).map(v=>({...v,channel:name}))); } catch(e){ setSt(`⚠ ${chs[i]}: ${e.message}`); await new Promise(r=>setTimeout(r,1200)); }}
     allO.sort((a,b)=>b.views-a.views);
     setAllRaw(allO);
     const byDays = filterByDays(allO, days);
@@ -427,18 +467,18 @@ function NichePg({ niche, niches, ytKey, clKey, sn, back, gen }) {
   };
 
   const suggest = async () => {
-    if(!clKey){setSt("⚠️ Set Anthropic API Key!");return;}
-    if(!lastData){setSt("⚠️ Scan channels first!");return;}
-    setLdRegen(true); setSt("🤖 AI analyzing...");
-    try { setTopics(await genTopics(lastData)); setSt("✅ 10 topic ideas"); } catch(e){setSt("⚠️ "+e.message);}
+    if(!clKey){setSt("⚠ Set Anthropic API Key!");return;}
+    if(!lastData){setSt("⚠ Scan channels first!");return;}
+    setLdRegen(true); setSt("AI analyzing...");
+    try { setTopics(await genTopics(lastData)); setSt("✅ 10 topic ideas"); } catch(e){setSt("⚠ "+e.message);}
     setLdRegen(false);
   };
 
   const regenerate = async () => {
-    if(!lastData){setSt("⚠️ Scan channels first!");return;}
-    if(!clKey){setSt("⚠️ Set Anthropic API Key!");return;}
-    setLdRegen(true); setSt("🔄 Regenerating topics...");
-    try { setTopics(await genTopics(lastData)); setSt("✅ 10 fresh ideas"); } catch(e){setSt("⚠️ "+e.message);}
+    if(!lastData){setSt("⚠ Scan channels first!");return;}
+    if(!clKey){setSt("⚠ Set Anthropic API Key!");return;}
+    setLdRegen(true); setSt("Regenerating topics...");
+    try { setTopics(await genTopics(lastData)); setSt("✅ 10 fresh ideas"); } catch(e){setSt("⚠ "+e.message);}
     setLdRegen(false);
   };
 
@@ -458,12 +498,12 @@ function NichePg({ niche, niches, ytKey, clKey, sn, back, gen }) {
     {niche.desc&&<p className="yt-sub">{niche.desc}</p>}
     {allRaw.length>0&&<div className="yt-info-bar"><div className="yt-info-item"><span className="yt-info-num">{allRaw.length}</span>videos scanned</div><div className="yt-info-item"><span className="yt-info-num">{outs.length}</span>showing</div><div className="yt-info-item"><span className="yt-info-num">{chs.length}</span>channels</div><div className="yt-info-item"><span className="yt-info-num">{hist.length}</span>topics used</div></div>}
 
-    <div className="yt-card"><div className="yt-card-ht">📺 Channels</div><p className="yt-hint">YouTube URL or @handle</p><div className="yt-input-row"><input className="yt-input" placeholder="@ChannelName or URL" value={ch} onChange={e=>setCh(e.target.value)} onKeyDown={e=>e.key==="Enter"&&addCh()}/><button className="yt-btn" onClick={addCh}>Add</button></div>{chs.length>0&&<div className="yt-chips">{chs.map((c,i)=><span key={i} className="yt-chip">{c}<button onClick={()=>rmCh(i)}>✕</button></span>)}</div>}</div>
+    <div className="yt-card"><div className="yt-card-ht">Channels</div><p className="yt-hint">YouTube URL or @handle</p><div className="yt-input-row"><input className="yt-input" placeholder="@ChannelName or URL" value={ch} onChange={e=>setCh(e.target.value)} onKeyDown={e=>e.key==="Enter"&&addCh()}/><button className="yt-btn" onClick={addCh}>Add</button></div>{chs.length>0&&<div className="yt-chips">{chs.map((c,i)=><span key={i} className="yt-chip">{c}<button onClick={()=>rmCh(i)}>✕</button></span>)}</div>}</div>
 
-    <div className="yt-card"><div className="yt-card-ht">🔍 Analysis</div>
-      <button className={`yt-btn-big ${ld?'yt-btn-big-ld':''}`} onClick={analyze} disabled={ld||ldRegen}>{ld?"⏳ Scanning...":"🚀 Scan Channels"}</button>
+    <div className="yt-card"><div className="yt-card-ht">Analysis</div>
+      <button className={`yt-btn-big ${ld?'yt-btn-big-ld':''}`} onClick={analyze} disabled={ld||ldRegen}>{ld?"Scanning...":"Scan Channels"}</button>
       {st&&<p className={`yt-st ${st[0]==="⚠"?'err':st[0]==="✅"?'ok':''}`}>{st}</p>}
-      {outs.length>0&&<><div className="yt-toggle" onClick={()=>setShowO(!showO)}><span className="yt-toggle-t">🏆 Top Videos — {daysLabel} ({outs.length})</span><span className="yt-chev">{showO?"▲":"▼"}</span></div>
+      {outs.length>0&&<><div className="yt-toggle" onClick={()=>setShowO(!showO)}><span className="yt-toggle-t">Top Videos — {daysLabel} ({outs.length})</span><span className="yt-chev">{showO?"▲":"▼"}</span></div>
       {showO&&<><div className="yt-days-filter">{[30,60,90,0].map(d=><button key={d} className={`yt-days-chip ${days===d?'active':''}`} onClick={()=>changeDays(d)}>{d===0?"All":d+"d"}</button>)}</div>
       <div className="yt-out-grid">{outs.map((v,i)=><div key={i} className="yt-out-card">
         <div className="yt-out-card-img-wrap">
@@ -481,28 +521,28 @@ function NichePg({ niche, niches, ytKey, clKey, sn, back, gen }) {
       </div>)}</div></>}</>}
     </div>
 
-    {allRaw.length>0&&!topics.length&&<button className={`yt-btn-big yt-btn-big-suggest ${ldRegen?'yt-btn-big-ld':''}`} onClick={suggest} disabled={ld||ldRegen} style={{marginBottom:16}}>{ldRegen?"⏳ Analyzing...":"💡 Suggest Topics"}</button>}
+    {allRaw.length>0&&!topics.length&&<button className={`yt-btn-big yt-btn-big-suggest ${ldRegen?'yt-btn-big-ld':''}`} onClick={suggest} disabled={ld||ldRegen} style={{marginBottom:16}}>{ldRegen?"Analyzing...":"Suggest Topics"}</button>}
 
     {topics.length>0&&<div className="yt-card">
       <div className="yt-card-h">
-        <span className="yt-card-ht">💡 Topics</span>
-        <button className={`yt-btn-regen ${ldRegen?'yt-btn-ld':''}`} onClick={regenerate} disabled={ld||ldRegen}>{ldRegen?"⏳":"🔄 Regenerate"}</button>
+        <span className="yt-card-ht">Topics</span>
+        <button className={`yt-btn-regen ${ldRegen?'yt-btn-ld':''}`} onClick={regenerate} disabled={ld||ldRegen}>{ldRegen?"…":"Regenerate"}</button>
       </div>
       <div className="yt-topics">{topics.map((t,i)=>{
       const vc=getVersionCount(t.title); const done=vc>0;
       return <div key={i} className={`yt-topic ${done?'yt-topic-done':''}`}>
         <div className="yt-topic-h"><span className="yt-topic-t">{t.title}</span>{done&&<span className="yt-badge-used">USED ×{vc}</span>}</div>
         {t.angle&&<p className="yt-topic-a">{t.angle}</p>}
-        {t.why&&<p className="yt-topic-w">📈 {t.why}</p>}
-        {t.inspired_by&&<p className="yt-topic-i">💡 {t.inspired_by}</p>}
+        {t.why&&<p className="yt-topic-w">{t.why}</p>}
+        {t.inspired_by&&<p className="yt-topic-i">{t.inspired_by}</p>}
         <div className="yt-topic-btns">
           {!done && <button className="yt-btn-use" onClick={()=>gen(t.title,1)}>Use Topic →</button>}
-          {done && <button className="yt-btn-remake" onClick={()=>gen(t.title,vc+1)}>🔄 Remake (v{vc+1})</button>}
+          {done && <button className="yt-btn-remake" onClick={()=>gen(t.title,vc+1)}>Remake (v{vc+1})</button>}
         </div>
       </div>;})}</div>
     </div>}
 
-    <div className="yt-card"><div className="yt-card-ht">✏️ Custom Topic</div><div className="yt-input-row"><input className="yt-input" placeholder="Your own topic..." value={cust} onChange={e=>setCust(e.target.value)} onKeyDown={e=>e.key==="Enter"&&cust.trim()&&gen(cust.trim(),getVersionCount(cust.trim())+1)}/><button className="yt-btn" onClick={()=>cust.trim()&&gen(cust.trim(),getVersionCount(cust.trim())+1)} disabled={!cust.trim()}>Go →</button></div></div>
+    <div className="yt-card"><div className="yt-card-ht">Custom Topic</div><div className="yt-input-row"><input className="yt-input" placeholder="Your own topic..." value={cust} onChange={e=>setCust(e.target.value)} onKeyDown={e=>e.key==="Enter"&&cust.trim()&&gen(cust.trim(),getVersionCount(cust.trim())+1)}/><button className="yt-btn" onClick={()=>cust.trim()&&gen(cust.trim(),getVersionCount(cust.trim())+1)} disabled={!cust.trim()}>Go →</button></div></div>
   </div>);
 }
 
@@ -646,7 +686,7 @@ English only. No markdown.`;
   };
 
   const go = async () => {
-    if(!clKey){setPrompt("⚠️ Set Anthropic API Key!");return;} setLd(true); setPrompt(""); setTab("prompt");
+    if(!clKey){setPrompt("⚠ Set Anthropic API Key!");return;} setLd(true); setPrompt(""); setTab("prompt");
     let extra = "";
     const usedItems = getUsedItems();
     if(version > 1) { extra = `\n\nIMPORTANT: This is VERSION ${version} of this topic. Previous versions already covered this topic. You MUST use COMPLETELY DIFFERENT specific items, examples, facts, and angles than would be typical. Find obscure, lesser-known, surprising entries that a hardcore fan hasn't seen before. Do NOT repeat the obvious choices.`; }
@@ -737,57 +777,57 @@ English only. No markdown.`;
   if(!mode) return (<div className="yt-page">
     <div className="yt-breadcrumb"><button className="yt-btn-o" onClick={back}>← {niche.name}</button><h1 className="yt-page-title">Mode</h1></div>
     <div className="yt-topic-banner">{topic}{version>1&&<span className="yt-version-big">V{version}</span>}</div>
-    {refThumb && <div className="yt-ref-preview"><img src={refThumb} alt="Reference" className="yt-ref-img"/><span className="yt-ref-label">🎨 Reference thumbnail attached</span><button className="yt-ref-rm" onClick={()=>setRefThumb("")}>✕</button></div>}
+    {refThumb && <div className="yt-ref-preview"><img src={refThumb} alt="Reference" className="yt-ref-img"/><span className="yt-ref-label">Reference thumbnail attached</span><button className="yt-ref-rm" onClick={()=>setRefThumb("")}>✕</button></div>}
     <div className="yt-mode-grid">
-      <button className="yt-mode auto" onClick={()=>setMode("auto")}><div className="yt-mode-ic">🚀</div><div className="yt-mode-n">AUTO</div><div className="yt-mode-d">Prompt ready to paste</div><span className="yt-mode-b">SPEED</span></button>
-      <button className="yt-mode manual" onClick={()=>setMode("manual")}><div className="yt-mode-ic">🎯</div><div className="yt-mode-n">MANUAL</div><div className="yt-mode-d">Prompt + Q&A + refs</div><span className="yt-mode-b yt-mode-b2">CONTROL</span></button>
+      <button className="yt-mode auto" onClick={()=>setMode("auto")}><div className="yt-mode-ic"></div><div className="yt-mode-n">AUTO</div><div className="yt-mode-d">Prompt ready to paste</div><span className="yt-mode-b">SPEED</span></button>
+      <button className="yt-mode manual" onClick={()=>setMode("manual")}><div className="yt-mode-ic"></div><div className="yt-mode-n">MANUAL</div><div className="yt-mode-d">Prompt + Q&A + refs</div><span className="yt-mode-b yt-mode-b2">CONTROL</span></button>
     </div>
   </div>);
 
   return (<div className="yt-page">
     <div className="yt-breadcrumb"><button className="yt-btn-o" onClick={()=>setMode(null)}>← Mode</button><h1 className="yt-page-title">Generate</h1><span className={`yt-mtag ${mode}`}>{mode.toUpperCase()}</span>{version>1&&<span className="yt-version-big">V{version}</span>}</div>
     <div className="yt-topic-banner">{topic}{version>1&&<span className="yt-version-big">V{version} — fresh content</span>}</div>
-    {getUsedItems().length > 0 && <div className="yt-used-items"><span className="yt-used-items-label">🧬 Already used ({getUsedItems().length}):</span><span className="yt-used-items-list">{getUsedItems().join(", ")}</span></div>}
+    {getUsedItems().length > 0 && <div className="yt-used-items"><span className="yt-used-items-label">Already used ({getUsedItems().length}):</span><span className="yt-used-items-list">{getUsedItems().join(", ")}</span></div>}
     <div className="yt-gen-ctrl">
       <div><label className="yt-label">Duration</label><select className="yt-sel" value={dur} onChange={e=>setDur(e.target.value)}><option value="8">6–8 min</option><option value="12">10–12 min</option><option value="15">13–15 min</option><option value="20">18–20 min</option><option value="30">25–30 min</option></select></div>
       <div><label className="yt-label">Style</label><select className="yt-sel" value={sty} onChange={e=>setSty(e.target.value)}><option value="documentary">Documentary</option><option value="top10">Top 10</option></select></div>
       <div className="yt-gen-btns">
-        <button className={`yt-btn-gen ${ld?'yt-btn-ld':''}`} onClick={go} disabled={ld}>{ld?"⏳ Generating...":"⚡ Generate Prompt"}</button>
-        <button className="yt-btn-studio" onClick={()=>goStudio({topic,version,histId,prompt})} title="Full pipeline: script → storyboard → visuals → voiceover → MP4 + SEO package">🎬 Storyboard Studio →</button>
+        <button className={`yt-btn-gen ${ld?'yt-btn-ld':''}`} onClick={go} disabled={ld}>{ld?"Generating...":"Generate Prompt"}</button>
+        <button className="yt-btn-studio" onClick={()=>goStudio({topic,version,histId,prompt})} title="Full pipeline: script → storyboard → visuals → voiceover → MP4 + SEO package">Storyboard Studio →</button>
       </div>
     </div>
     {ld&&<div className="yt-ld-box"><div className="yt-spin"/><p>Building detailed prompt...</p></div>}
     {(prompt||optTitles.length>0||optDesc||thumbResults.length>0)&&<>
       <div className="yt-tabs">
-        <button className={`yt-tab ${tab==="prompt"?'active':''}`} onClick={()=>setTab("prompt")}>📝 Prompt{prompt?` (${cc.toLocaleString()})`:""}</button>
-        <button className={`yt-tab ${tab==="optimize"?'active':''}`} onClick={()=>setTab("optimize")}>📊 Optimize{ldO?" ⏳":optTitles.length?" ✓":""}</button>
-        <button className={`yt-tab ${tab==="thumbnail"?'active':''}`} onClick={()=>setTab("thumbnail")}>🖼️ Thumbnail{thumbResults.length?` (${thumbResults.filter(r=>r?.url).length})`:""}</button>
+        <button className={`yt-tab ${tab==="prompt"?'active':''}`} onClick={()=>setTab("prompt")}>Prompt{prompt?` (${cc.toLocaleString()})`:""}</button>
+        <button className={`yt-tab ${tab==="optimize"?'active':''}`} onClick={()=>setTab("optimize")}>Optimize{ldO?" …":optTitles.length?" ✓":""}</button>
+        <button className={`yt-tab ${tab==="thumbnail"?'active':''}`} onClick={()=>setTab("thumbnail")}>Thumbnail{thumbResults.length?` (${thumbResults.filter(r=>r?.url).length})`:""}</button>
       </div>
       <div className="yt-out-panel">
         {tab==="prompt"&&<>
-          <div className="yt-out-h"><span className={`yt-cc ${cc>10000?'over':''}`}>{cc.toLocaleString()}/10,000{cc>10000?" ⚠️":" ✓"}</span><button className="yt-btn-cp" onClick={()=>copy(prompt,"prompt")}>{cp==="prompt"?"✅ Copied!":"📋 Copy"}</button></div>
+          <div className="yt-out-h"><span className={`yt-cc ${cc>10000?'over':''}`}>{cc.toLocaleString()}/10,000{cc>10000?" ⚠":" ✓"}</span><button className="yt-btn-cp" onClick={()=>copy(prompt,"prompt")}>{cp==="prompt"?"✅ Copied!":"Copy"}</button></div>
           <pre className="yt-pre">{prompt}</pre>
         </>}
         {tab==="optimize"&&<>
           {ldO&&<div className="yt-ld-box"><div className="yt-spin"/><p>Generating SEO...</p></div>}
           {optTitles.length>0&&<div className="yt-opt-section">
-            <div className="yt-opt-h"><span className="yt-opt-label">📌 Titles</span><button className="yt-btn-cp-sm" onClick={()=>copy(optTitles.join("\n"),"titles")}>{cp==="titles"?"✅":"📋"}</button></div>
+            <div className="yt-opt-h"><span className="yt-opt-label">Titles</span><button className="yt-btn-cp-sm" onClick={()=>copy(optTitles.join("\n"),"titles")}>{cp==="titles"?"✅":"Copy"}</button></div>
             {optTitles.map((t,i)=><div key={i} className="yt-opt-title" onClick={()=>copy(t,"t"+i)}>
               <span className="yt-opt-num">{i+1}</span><span>{t}</span>{cp===("t"+i)&&<span className="yt-opt-copied">✅</span>}
             </div>)}
           </div>}
           {optDesc&&<div className="yt-opt-section">
-            <div className="yt-opt-h"><span className="yt-opt-label">📝 Descriptions ({optDesc.split('---').filter(d=>d.trim()).length} variants)</span></div>
+            <div className="yt-opt-h"><span className="yt-opt-label">Descriptions ({optDesc.split('---').filter(d=>d.trim()).length} variants)</span></div>
             {optDesc.split('---').filter(d=>d.trim()).map((d,i)=><div key={i} className="yt-opt-desc-card">
-              <div className="yt-opt-desc-head"><span className="yt-opt-num">{i+1}</span><span className="yt-opt-desc-tone">{["🔮 Curiosity","📚 Educational","💥 Clickbait"][i]||`#${i+1}`}</span><button className="yt-btn-cp-sm" onClick={()=>copy(d.trim(),"desc"+i)}>{cp===("desc"+i)?"✅":"📋"}</button></div>
+              <div className="yt-opt-desc-head"><span className="yt-opt-num">{i+1}</span><span className="yt-opt-desc-tone">{["🔮 Curiosity","📚 Educational","💥 Clickbait"][i]||`#${i+1}`}</span><button className="yt-btn-cp-sm" onClick={()=>copy(d.trim(),"desc"+i)}>{cp===("desc"+i)?"✅":"Copy"}</button></div>
               <pre className="yt-pre yt-pre-sm">{d.trim()}</pre>
             </div>)}
           </div>}
           {optTags.length>0&&<div className="yt-opt-section">
-            <div className="yt-opt-h"><span className="yt-opt-label">🏷️ Tags</span><button className="yt-btn-cp-sm" onClick={()=>copy(optTags.join(", "),"tags")}>{cp==="tags"?"✅":"📋"}</button></div>
+            <div className="yt-opt-h"><span className="yt-opt-label">Tags</span><button className="yt-btn-cp-sm" onClick={()=>copy(optTags.join(", "),"tags")}>{cp==="tags"?"✅":"Copy"}</button></div>
             <div className="yt-opt-tags">{optTags.map((t,i)=><span key={i} className="yt-opt-tag" onClick={()=>copy(t,"tag"+i)}>{t}</span>)}</div>
           </div>}
-          {!ldO&&!optTitles.length&&!optDesc&&<button className="yt-btn-big yt-btn-big-suggest" onClick={runOptimize}>📊 Generate SEO</button>}
+          {!ldO&&!optTitles.length&&!optDesc&&<button className="yt-btn-big yt-btn-big-suggest" onClick={runOptimize}>Generate SEO</button>}
         </>}
         {tab==="thumbnail"&&<>
           {/* Step 1: Choose mode */}
@@ -795,13 +835,13 @@ English only. No markdown.`;
             <p className="yt-th-choose-label">How do you want to create the thumbnail?</p>
             <div className="yt-th-choose-grid">
               <button className="yt-th-choose-btn" onClick={()=>{setThMode("reference"); if(initialRefThumb && !thRefImg) setThRefImg(initialRefThumb);}}>
-                <span className="yt-th-choose-ic">🖼️</span>
+                <span className="yt-th-choose-ic"></span>
                 <span className="yt-th-choose-n">From Reference</span>
                 <span className="yt-th-choose-d">Upload a photo or use outlier thumbnail → AI writes prompt</span>
                 {initialRefThumb && <span className="yt-th-choose-tag">Outlier thumbnail available</span>}
               </button>
               <button className="yt-th-choose-btn" onClick={()=>setThMode("scratch")}>
-                <span className="yt-th-choose-ic">✏️</span>
+                <span className="yt-th-choose-ic"></span>
                 <span className="yt-th-choose-n">From Scratch</span>
                 <span className="yt-th-choose-d">Write your own prompt or let AI generate one for the topic</span>
               </button>
@@ -831,7 +871,7 @@ English only. No markdown.`;
                   ) : (
                     <label className="yt-th-ref-drop-big">
                       <input type="file" accept="image/*" onChange={handleThRefUpload} style={{display:'none'}}/>
-                      <span className="yt-th-ref-drop-ic">🖼️</span>
+                      <span className="yt-th-ref-drop-ic"></span>
                       <span className="yt-th-ref-drop-t">Drop reference photo here</span>
                       <span className="yt-th-ref-drop-d">or click to upload</span>
                     </label>
@@ -840,20 +880,20 @@ English only. No markdown.`;
                 <div className="yt-th-prompt-col">
                   <div className="yt-th-prompt-header">
                     <label className="yt-label">Nana Banana Prompt</label>
-                    {thRefImg && !thPrompt && <button className={`yt-btn ${thAnalyzing?'yt-btn-ld':''}`} onClick={analyzeReference} disabled={thAnalyzing}>{thAnalyzing?"⏳ Analyzing...":"🔍 Analyze & Write Prompt"}</button>}
+                    {thRefImg && !thPrompt && <button className={`yt-btn ${thAnalyzing?'yt-btn-ld':''}`} onClick={analyzeReference} disabled={thAnalyzing}>{thAnalyzing?"Analyzing...":"Analyze & Write Prompt"}</button>}
                   </div>
                   {thAnalyzing && <div className="yt-ld-box"><div className="yt-spin"/><p>Claude analyzing reference...</p></div>}
                   {thPrompt && <>
                     <textarea className="yt-input yt-th-prompt-area" rows="8" value={thPrompt} onChange={e=>setThPrompt(e.target.value)} placeholder="AI-generated prompt will appear here..."/>
                     <div className="yt-th-prompt-actions">
-                      <button className="yt-btn-cp" onClick={()=>copy(thPrompt,"thprompt")}>{cp==="thprompt"?"✅ Copied!":"📋 Copy Prompt"}</button>
+                      <button className="yt-btn-cp" onClick={()=>copy(thPrompt,"thprompt")}>{cp==="thprompt"?"✅ Copied!":"Copy Prompt"}</button>
                     </div>
                     {/* Refine section */}
                     <div className="yt-th-refine">
-                      <label className="yt-label">✏️ Refine Prompt</label>
+                      <label className="yt-label">Refine Prompt</label>
                       <div className="yt-th-refine-row">
                         <textarea className="yt-input yt-th-refine-input" rows="2" value={thRefine} onChange={e=>setThRefine(e.target.value)} placeholder="e.g. Add bold yellow title 'THIS CHANGES EVERYTHING', replace fruit with vegetable, make background darker..." onKeyDown={e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();refinePrompt();}}}/>
-                        <button className={`yt-btn-refine ${thRefining?'yt-btn-ld':''}`} onClick={refinePrompt} disabled={thRefining||!thRefine.trim()}>{thRefining?"⏳":"🔄 Refine"}</button>
+                        <button className={`yt-btn-refine ${thRefining?'yt-btn-ld':''}`} onClick={refinePrompt} disabled={thRefining||!thRefine.trim()}>{thRefining?"…":"Refine"}</button>
                       </div>
                     </div>
                   </>}
@@ -879,19 +919,19 @@ English only. No markdown.`;
                         setThPrompt(r.replace(/```/g,"").trim());
                       }catch(e){setThPrompt("❌ "+e.message);}
                       setThAnalyzing(false);
-                    }} disabled={thAnalyzing}>{thAnalyzing?"⏳ Generating...":"🤖 Auto-Generate Prompt"}</button>}
+                    }} disabled={thAnalyzing}>{thAnalyzing?"Generating...":"Auto-Generate Prompt"}</button>}
                   </div>
                   {thAnalyzing && <div className="yt-ld-box"><div className="yt-spin"/><p>Writing thumbnail prompt...</p></div>}
                   <textarea className="yt-input yt-th-prompt-area" rows="6" value={thPrompt} onChange={e=>setThPrompt(e.target.value)} placeholder={`Write your Nana Banana / Midjourney prompt here...\n\nExample: Close-up of a person's shocked face looking at a glowing ancient plant, dramatic golden backlighting, deep shadows...`}/>
                   {thPrompt && <>
                     <div className="yt-th-prompt-actions">
-                      <button className="yt-btn-cp" onClick={()=>copy(thPrompt,"thprompt")}>{cp==="thprompt"?"✅ Copied!":"📋 Copy Prompt"}</button>
+                      <button className="yt-btn-cp" onClick={()=>copy(thPrompt,"thprompt")}>{cp==="thprompt"?"✅ Copied!":"Copy Prompt"}</button>
                     </div>
                     <div className="yt-th-refine">
-                      <label className="yt-label">✏️ Refine Prompt</label>
+                      <label className="yt-label">Refine Prompt</label>
                       <div className="yt-th-refine-row">
                         <textarea className="yt-input yt-th-refine-input" rows="2" value={thRefine} onChange={e=>setThRefine(e.target.value)} placeholder="e.g. Make it more dramatic, add a person, change colors to blue..." onKeyDown={e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();refinePrompt();}}}/>
-                        <button className={`yt-btn-refine ${thRefining?'yt-btn-ld':''}`} onClick={refinePrompt} disabled={thRefining||!thRefine.trim()}>{thRefining?"⏳":"🔄 Refine"}</button>
+                        <button className={`yt-btn-refine ${thRefining?'yt-btn-ld':''}`} onClick={refinePrompt} disabled={thRefining||!thRefine.trim()}>{thRefining?"…":"Refine"}</button>
                       </div>
                     </div>
                   </>}
@@ -900,7 +940,7 @@ English only. No markdown.`;
                   <label className="yt-label">Extra Reference Photos (optional)</label>
                   <label className="yt-thumb-drop">
                     <input type="file" accept="image/*" multiple onChange={handleRefFiles} style={{display:'none'}}/>
-                    🖼 Add reference photos
+                    Add reference photos
                   </label>
                   {userRefs.length>0 && <div className="yt-thumb-ref-list">{userRefs.map((ref,i)=><div key={i} className="yt-thumb-ref-card"><img src={ref.preview} className="yt-thumb-ref-img" alt=""/><button className="yt-thumb-ref-rm" onClick={()=>removeRef(i)}>✕</button></div>)}</div>}
                 </div>
@@ -913,27 +953,27 @@ English only. No markdown.`;
             <div className="yt-th-gen-bar">
               <div className="yt-thumb-options">
                 <div><label className="yt-label">Count</label><select className="yt-sel" value={thumbCount} onChange={e=>setThumbCount(e.target.value)}><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option></select></div>
-                <label className="yt-thumb-check"><input type="checkbox" checked={thumbWithText} onChange={e=>setThumbWithText(e.target.checked)}/><span>🔤 With text</span></label>
-                {thMode === "reference" && thRefImg && <label className="yt-thumb-check"><input type="checkbox" checked={thumbSendRef} onChange={e=>setThumbSendRef(e.target.checked)}/><span>🖼️ Send reference</span></label>}
+                <label className="yt-thumb-check"><input type="checkbox" checked={thumbWithText} onChange={e=>setThumbWithText(e.target.checked)}/><span>With text</span></label>
+                {thMode === "reference" && thRefImg && <label className="yt-thumb-check"><input type="checkbox" checked={thumbSendRef} onChange={e=>setThumbSendRef(e.target.checked)}/><span>Send reference</span></label>}
               </div>
-              <button className="yt-btn-big" onClick={generateAllThumbs} disabled={!gemKey} style={{marginTop:12}}>{!gemKey?"⚠️ Add Gemini Key":"🖼️ Generate Thumbnails"}</button>
+              <button className="yt-btn-big" onClick={generateAllThumbs} disabled={!gemKey} style={{marginTop:12}}>{!gemKey?"⚠ Add Gemini Key":"Generate Thumbnails"}</button>
             </div>
           </>}
 
           {/* Results grid */}
           {thumbResults.length>0&&<>
-            <div className="yt-thumb-grid-header"><span className="yt-opt-label">🎨 Results ({thumbResults.filter(r=>r?.url).length}/{thumbResults.length})</span>{thumbResults.some(r=>r?.url)&&<button className="yt-btn-cp-sm" onClick={()=>{setThumbResults([]);setThumbLoading([]);}}>🗑 Clear All</button>}</div>
+            <div className="yt-thumb-grid-header"><span className="yt-opt-label">Results ({thumbResults.filter(r=>r?.url).length}/{thumbResults.length})</span>{thumbResults.some(r=>r?.url)&&<button className="yt-btn-cp-sm" onClick={()=>{setThumbResults([]);setThumbLoading([]);}}>Clear All</button>}</div>
             <div className="yt-thumb-grid">
               {[...thumbResults].reverse().map((r,ri)=>{ const i=thumbResults.length-1-ri; return <div key={i} className="yt-thumb-item">
                 {thumbLoading[i]&&!r?.url&&!r?.error&&<div className="yt-thumb-loader"><div className="yt-spin"/><p>Generating #{i+1}...</p></div>}
                 {r?.url&&<><img src={r.url} className="yt-thumb-result-img" alt="" onClick={()=>window.open(r.url)}/>
                   <div className="yt-thumb-actions">
-                    <a href={r.url} download={`thumb_${topic.replace(/\s+/g,'_')}_${i+1}.png`} className="yt-thumb-dl">⬇ Download</a>
-                    <button className="yt-thumb-regen" onClick={()=>{navigator.clipboard.writeText(r.prompt||"");setCp("tp"+i);setTimeout(()=>setCp(""),2e3);}}>{cp===("tp"+i)?"✅ Copied":"📋 Prompt"}</button>
-                    <button className="yt-thumb-regen" onClick={()=>generateThumb(i)}>{thumbLoading[i]?"⏳":"🔄 Regen"}</button>
+                    <a href={r.url} download={`thumb_${topic.replace(/\s+/g,'_')}_${i+1}.png`} className="yt-thumb-dl">Download</a>
+                    <button className="yt-thumb-regen" onClick={()=>{navigator.clipboard.writeText(r.prompt||"");setCp("tp"+i);setTimeout(()=>setCp(""),2e3);}}>{cp===("tp"+i)?"✅ Copied":"Prompt"}</button>
+                    <button className="yt-thumb-regen" onClick={()=>generateThumb(i)}>{thumbLoading[i]?"…":"Regen"}</button>
                   </div>
                 </>}
-                {r?.error&&<div className="yt-thumb-error">❌ {r.error}<button className="yt-thumb-regen" onClick={()=>generateThumb(i)} style={{marginTop:8,display:'block',width:'100%'}}>🔄 Retry</button></div>}
+                {r?.error&&<div className="yt-thumb-error">❌ {r.error}<button className="yt-thumb-regen" onClick={()=>generateThumb(i)} style={{marginTop:8,display:'block',width:'100%'}}>Retry</button></div>}
               </div>; })}
             </div>
           </>}
@@ -944,393 +984,326 @@ English only. No markdown.`;
 }
 
 const CSS = `
-@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
 :root{
-  --bg:#0a0a11;--bg2:#101018;--bg3:#161622;--bg4:#1f1f2e;
-  --surface:rgba(255,255,255,.04);--surface2:rgba(255,255,255,.07);--surface3:rgba(255,255,255,.1);
-  --border:rgba(255,255,255,.08);--border2:rgba(255,255,255,.13);
-  --text:#f2f2f8;--text2:rgba(240,240,250,.58);--text3:rgba(240,240,250,.36);
-  --red:#ff3b3b;--red2:#ff5252;--red-bg:rgba(255,59,59,.12);--red-glow:rgba(255,59,59,.28);
-  --violet:#7c3aed;--violet2:#4f46e5;--violet-glow:rgba(124,58,237,.35);
-  --blue:#4d9fff;--blue-bg:rgba(77,159,255,.12);
-  --green:#34d399;--green-bg:rgba(52,211,153,.12);--amber:#f59e0b;
-  --glass:rgba(255,255,255,.03);--glass2:rgba(255,255,255,.06);
-  --radius:16px;--radius2:12px;--radius3:9px;
-  --shadow:0 8px 32px rgba(0,0,0,.45);--shadow2:0 2px 12px rgba(0,0,0,.3);
-  --font:'DM Sans',system-ui,-apple-system,sans-serif;--mono:'JetBrains Mono',monospace;
+  --bg:#ffffff;--bg2:#fbfbfa;--bg3:#ffffff;--bg4:#f1f1ef;
+  --surface:#f7f7f5;--surface2:#f1f1ef;--surface3:#e8e8e6;
+  --border:#ebebe9;--border2:#d9d9d6;
+  --text:#1c1c1a;--text2:#6f6e69;--text3:#a5a49e;
+  --red:#d9534f;--red2:#c0443f;--red-bg:#fbeeed;--red-glow:rgba(217,83,79,.15);
+  --blue:#2383e2;--blue2:#1a73c9;--blue-bg:#eaf2fc;
+  --green:#448361;--green-bg:#eaf2ee;--amber:#b98a2d;--violet:#6940a5;
+  --glass:#f7f7f5;--glass2:#f1f1ef;
+  --radius:10px;--radius2:8px;--radius3:6px;
+  --shadow:0 14px 40px rgba(20,20,18,.10),0 3px 8px rgba(20,20,18,.05);
+  --shadow2:0 2px 8px rgba(20,20,18,.06);
+  --font:'Inter',ui-sans-serif,-apple-system,'Segoe UI',Helvetica,Arial,sans-serif;
+  --mono:ui-monospace,'SF Mono','Cascadia Code',Menlo,Consolas,monospace;
 }
 *{box-sizing:border-box;margin:0;padding:0}
-::selection{background:var(--red);color:#fff}
+::selection{background:#c4dcf5}
 ::-webkit-scrollbar{width:10px;height:10px}
-::-webkit-scrollbar-thumb{background:var(--surface3);border-radius:5px;border:2px solid var(--bg)}
+::-webkit-scrollbar-thumb{background:#d9d9d6;border-radius:5px;border:3px solid var(--bg)}
 ::-webkit-scrollbar-track{background:transparent}
-.yt-app{min-height:100vh;color:var(--text);font-family:var(--font);-webkit-font-smoothing:antialiased;
-  background:radial-gradient(1100px 500px at 85% -10%,rgba(124,58,237,.10),transparent 60%),radial-gradient(900px 420px at -10% 0%,rgba(255,59,59,.08),transparent 55%),var(--bg)}
+html{background:var(--bg)}
+.yt-app{min-height:100vh;background:var(--bg);color:var(--text);font-family:var(--font);font-size:15px;line-height:1.5;-webkit-font-smoothing:antialiased}
+button{font-family:var(--font)}
 
-/* NAV */
-.yt-nav{display:flex;gap:4px;margin-left:20px;background:var(--surface);border:1px solid var(--border);border-radius:22px;padding:4px}
-.yt-nav button{background:transparent;border:none;border-radius:18px;padding:7px 16px;color:var(--text2);font-size:12.5px;font-weight:600;cursor:pointer;font-family:var(--font);transition:all .2s;white-space:nowrap}
-.yt-nav button:hover{color:var(--text);background:var(--surface2)}
-.yt-nav button.active{background:linear-gradient(135deg,var(--red),#cc2020);color:#fff;box-shadow:0 2px 12px var(--red-glow)}
-.yt-hero-cta{margin-top:4px;padding:11px 26px;font-size:14px}
-@media(max-width:900px){.yt-nav{display:none}}
+/* ---------- shell ---------- */
+.nv-shell{display:flex;min-height:100vh}
+.nv-side{width:248px;min-width:248px;background:var(--bg2);border-right:1px solid var(--border);padding:10px 8px 20px;position:sticky;top:0;height:100vh;overflow-y:auto;display:flex;flex-direction:column}
+.nv-side-top{display:flex;align-items:center;justify-content:space-between;padding:4px 6px 10px}
+.nv-brand{display:flex;align-items:center;gap:9px;background:none;border:none;font-size:14.5px;font-weight:600;color:var(--text);cursor:pointer;padding:4px 6px;border-radius:var(--radius3)}
+.nv-brand:hover{background:var(--surface2)}
+.nv-mark{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:5px;background:var(--text);color:var(--bg);font-size:12px;font-weight:700}
+.nv-collapse,.nv-expand{background:none;border:none;color:var(--text3);cursor:pointer;padding:6px;border-radius:var(--radius3);display:flex;align-items:center}
+.nv-collapse:hover,.nv-expand:hover{background:var(--surface2);color:var(--text2)}
+.nv-expand{position:fixed;top:14px;left:10px;z-index:50;background:var(--bg);border:1px solid var(--border);box-shadow:var(--shadow2)}
+.nv-nav{display:flex;flex-direction:column;gap:1px;margin-bottom:18px}
+.nv-nav button{display:flex;align-items:center;gap:10px;background:none;border:none;text-align:left;padding:6px 10px;border-radius:var(--radius3);font-size:13.5px;font-weight:500;color:var(--text2);cursor:pointer;transition:background .12s}
+.nv-nav button:hover{background:var(--surface2);color:var(--text)}
+.nv-nav button.on{background:var(--surface3);color:var(--text);font-weight:600}
+.nv-sec{font-size:11px;font-weight:600;letter-spacing:.4px;text-transform:uppercase;color:var(--text3);padding:0 10px;margin-bottom:6px}
+.nv-list{flex:1}
+.nv-side-empty{font-size:12.5px;color:var(--text3);padding:2px 10px}
+.nv-item{display:block;width:100%;background:none;border:none;text-align:left;padding:5px 10px;border-radius:var(--radius3);font-size:13.5px;color:var(--text2);cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;transition:background .12s}
+.nv-item:hover{background:var(--surface2);color:var(--text)}
+.nv-item.on{background:var(--surface3);color:var(--text);font-weight:600}
+.nv-topics{margin:2px 0 6px}
+.nv-topic{display:flex;align-items:center;gap:2px;padding:0 4px 0 18px;border-radius:var(--radius3)}
+.nv-topic:hover{background:var(--surface2)}
+.nv-topic-t{flex:1;background:none;border:none;text-align:left;font-size:12.5px;color:var(--text2);cursor:pointer;padding:4px 4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.nv-topic-t:hover{color:var(--text)}
+.nv-topic-b{background:none;border:none;color:var(--text3);cursor:pointer;padding:4px;border-radius:4px;display:none;align-items:center;flex-shrink:0}
+.nv-topic:hover .nv-topic-b{display:flex}
+.nv-topic-b:hover{background:var(--surface3);color:var(--text)}
+.nv-topic-x:hover{color:var(--red)}
+.yt-main{flex:1;padding:56px 64px 80px;max-width:1060px;margin:0 auto;width:100%;min-width:0}
+.nv-narrow{max-width:720px}
 
-/* TOPBAR */
-.yt-topbar{height:60px;background:rgba(11,11,15,.85);backdrop-filter:blur(20px) saturate(180%);-webkit-backdrop-filter:blur(20px) saturate(180%);border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;padding:0 20px;position:sticky;top:0;z-index:100}
-.yt-topbar-l{display:flex;align-items:center;gap:16px}
-.yt-hamburger{background:none;border:none;color:var(--text2);cursor:pointer;padding:8px;border-radius:10px;display:flex;align-items:center;transition:all .2s}
-.yt-hamburger:hover{background:var(--surface2);color:var(--text)}
-.yt-logo{display:flex;align-items:center;gap:6px;cursor:pointer;user-select:none}
-.yt-logo span{font-size:20px;font-weight:700;letter-spacing:-.3px;background:linear-gradient(135deg,#fff 0%,rgba(255,255,255,.7) 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
-.yt-ver-badge{font-size:9px!important;font-weight:700!important;background:var(--red);color:#fff!important;-webkit-text-fill-color:#fff!important;padding:2px 7px;border-radius:6px;margin-left:6px;letter-spacing:.5px;text-transform:uppercase}
-.yt-topbar-r{display:flex;align-items:center}
-.yt-niche-pill{font-size:12px;color:var(--text2);background:var(--surface2);padding:5px 14px;border-radius:20px;border:1px solid var(--border);font-weight:500}
-
-/* LAYOUT */
-.yt-layout{display:flex;min-height:calc(100vh - 60px)}
-.yt-sidebar{width:280px;min-width:280px;background:var(--bg2);border-right:1px solid var(--border);padding:16px;overflow-y:auto;max-height:calc(100vh - 60px);position:sticky;top:60px}
-.yt-sb-section{padding:4px 0}
-.yt-sb-title{font-size:11px;font-weight:600;color:var(--text3);margin-bottom:12px;display:flex;align-items:center;gap:8px;text-transform:uppercase;letter-spacing:1px}
-.yt-sb-badge{font-size:10px;background:var(--red);color:#fff;padding:2px 8px;border-radius:10px;font-weight:600}
-.yt-sb-empty{font-size:13px;color:var(--text3);padding:16px 0}
-.yt-sb-list{display:flex;flex-direction:column;gap:2px}
-.yt-sb-item{padding:10px 12px;border-radius:var(--radius3);cursor:default;transition:all .15s;border:1px solid transparent}
-.yt-sb-item:hover{background:var(--surface2);border-color:var(--border)}
-.yt-sb-clickable{cursor:pointer}
-.yt-sb-clickable:hover{background:var(--red-bg);border-color:rgba(255,59,59,.2)}
-.yt-sb-item-top{display:flex;align-items:start;gap:6px}
-.yt-sb-item-content{flex:1;min-width:0}
-.yt-sb-remake{background:none;border:none;font-size:14px;cursor:pointer;padding:2px 6px;border-radius:6px;opacity:0;transition:all .15s;flex-shrink:0}
-.yt-sb-item:hover .yt-sb-remake{opacity:.6}
-.yt-sb-remake:hover{opacity:1!important;background:var(--surface3)}
-.yt-sb-del{background:none;border:none;font-size:12px;cursor:pointer;padding:2px 6px;border-radius:6px;opacity:0;transition:all .15s;flex-shrink:0;color:var(--text3)}
-.yt-sb-item:hover .yt-sb-del{opacity:.4}
-.yt-sb-del:hover{opacity:1!important;background:var(--red-bg);color:var(--red)}
-.yt-sb-item-t{font-size:13px;color:var(--text);line-height:1.4;font-weight:400}
-.yt-sb-item-m{font-size:11px;color:var(--text3);margin-top:3px}
-.yt-sb-version{display:inline-flex;background:var(--red);color:#fff;font-size:9px;font-weight:700;padding:2px 6px;border-radius:4px;margin-right:6px;vertical-align:middle;letter-spacing:.5px}
-.yt-main{flex:1;padding:32px 40px;max-width:960px;margin:0 auto}
-.yt-main-full{max-width:1100px}
-
-/* ANIMATIONS */
-.yt-page{animation:vFade .35s cubic-bezier(.16,1,.3,1)}
-@keyframes vFade{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+/* ---------- typography & page ---------- */
+.yt-page{animation:nvIn .18s ease-out}
+@keyframes nvIn{from{opacity:0}to{opacity:1}}
 @keyframes vSpin{to{transform:rotate(360deg)}}
-@keyframes vPulse{0%,100%{opacity:.4}50%{opacity:1}}
+.yt-page-title{font-size:32px;font-weight:700;letter-spacing:-.02em;margin-bottom:6px}
+.yt-sub{font-size:15px;color:var(--text2);margin:0 0 28px;max-width:620px}
+.yt-breadcrumb{display:flex;align-items:center;gap:12px;margin-bottom:8px;flex-wrap:wrap}
+.yt-breadcrumb .yt-page-title{margin-bottom:0;font-size:26px}
+.yt-sec-h{display:flex;justify-content:space-between;align-items:center;margin:8px 0 14px}
+.yt-sec-h h2{font-size:17px;font-weight:600;letter-spacing:-.01em}
+.yt-loading{display:flex;align-items:center;justify-content:center;min-height:100vh}
+.yt-spin{width:22px;height:22px;border:2px solid var(--border2);border-top-color:var(--text2);border-radius:50%;animation:vSpin .7s linear infinite}
 
-/* TYPOGRAPHY */
-.yt-page-title{font-size:24px;font-weight:700;margin-bottom:20px;letter-spacing:-.3px}
-.yt-sub{font-size:14px;color:var(--text2);margin:-14px 0 20px}
-.yt-breadcrumb{display:flex;align-items:center;gap:12px;margin-bottom:20px;flex-wrap:wrap}
+/* ---------- callout & stats ---------- */
+.nv-callout{display:flex;align-items:center;justify-content:space-between;gap:16px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius2);padding:14px 18px;font-size:14px;color:var(--text2);margin-bottom:24px;flex-wrap:wrap}
+.nv-callout b{color:var(--text);font-weight:600}
+.nv-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:36px}
+.nv-stat{border:1px solid var(--border);border-radius:var(--radius2);padding:16px 18px;background:var(--bg)}
+.nv-stat-n{display:block;font-size:26px;font-weight:700;letter-spacing:-.02em}
+.nv-stat-l{font-size:12.5px;color:var(--text2)}
 
-/* HERO */
-.yt-hero{margin-bottom:24px;padding:32px;background:linear-gradient(135deg,var(--bg3) 0%,var(--bg4) 100%);border:1px solid var(--border);border-radius:var(--radius);position:relative;overflow:hidden}
-.yt-hero::before{content:'';position:absolute;top:-50%;right:-20%;width:300px;height:300px;background:radial-gradient(circle,var(--red-glow) 0%,transparent 70%);opacity:.3;pointer-events:none}
-.yt-hero-text{position:relative;z-index:1}
-.yt-hero-title{font-size:28px;font-weight:700;letter-spacing:-.5px;margin-bottom:8px;background:linear-gradient(135deg,#fff 0%,rgba(255,255,255,.7) 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
-.yt-hero-sub{font-size:14px;color:var(--text2);margin-bottom:20px}
-.yt-hero-stats{display:flex;gap:24px;position:relative;z-index:1}
-.yt-stat{display:flex;flex-direction:column;gap:2px}
-.yt-stat-num{font-size:28px;font-weight:700;color:var(--text);letter-spacing:-.5px}
-.yt-stat-label{font-size:11px;font-weight:500;color:var(--text3);text-transform:uppercase;letter-spacing:.5px}
+/* ---------- settings ---------- */
+.nv-h1{margin-top:4px}
+.nv-set-group{border:1px solid var(--border);border-radius:var(--radius2);margin-bottom:20px;overflow:hidden}
+.nv-set-group-t{font-size:12px;font-weight:600;letter-spacing:.4px;text-transform:uppercase;color:var(--text3);padding:12px 18px;background:var(--bg2);border-bottom:1px solid var(--border)}
+.nv-set-row{display:flex;align-items:center;gap:24px;padding:14px 18px}
+.nv-set-row + .nv-set-row{border-top:1px solid var(--border)}
+.nv-set-info{flex:1;min-width:0}
+.nv-set-label{font-size:14px;font-weight:600;display:flex;align-items:center;gap:8px}
+.nv-set-ok{font-size:11px;font-weight:600;color:var(--green);background:var(--green-bg);padding:2px 8px;border-radius:10px}
+.nv-set-desc{font-size:12.5px;color:var(--text2);margin-top:2px}
+.nv-set-input{max-width:280px}
+.nv-set-foot{display:flex;align-items:center;gap:12px}
+.nv-set-saved{font-size:13px;color:var(--green);font-weight:600}
 
-/* INFO BAR */
-.yt-info-bar{display:flex;gap:20px;margin-bottom:20px;padding:14px 20px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius2);flex-wrap:wrap}
-.yt-info-item{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text2);font-weight:500}
-.yt-info-num{font-size:16px;font-weight:700;color:var(--text);margin-right:2px}
-
-/* EMPTY STATE */
-.yt-empty-state{text-align:center;padding:60px 20px;background:var(--surface);border:1px dashed var(--border2);border-radius:var(--radius)}
-.yt-empty-icon{font-size:48px;margin-bottom:16px;opacity:.6}
-.yt-empty-title{font-size:18px;font-weight:600;color:var(--text);margin-bottom:8px}
-.yt-empty-desc{font-size:14px;color:var(--text3)}
-
-/* CARD GLOW */
-.yt-card-glow{border-color:var(--red);box-shadow:0 0 20px var(--red-glow)}
-
-/* CARDS */
-.yt-card{background:linear-gradient(180deg,rgba(255,255,255,.02),transparent 60%),var(--bg3);border:1px solid var(--border);border-radius:var(--radius);padding:20px;margin-bottom:16px;transition:border-color .25s,transform .25s,box-shadow .25s}
-.yt-card:hover{border-color:var(--border2);box-shadow:var(--shadow2)}
-.yt-card-h{display:flex;justify-content:space-between;align-items:center;cursor:pointer}
-.yt-card-ht{font-size:14px;font-weight:600;margin-bottom:6px;color:var(--text);letter-spacing:-.1px}
+/* ---------- cards ---------- */
+.yt-card{background:var(--bg);border:1px solid var(--border);border-radius:var(--radius2);padding:20px;margin-bottom:16px;transition:border-color .15s}
+.yt-card:hover{border-color:var(--border2)}
+.yt-card-glow{border-color:var(--border2)}
+.yt-card-h{display:flex;justify-content:space-between;align-items:center;cursor:pointer;gap:12px}
+.yt-card-ht{font-size:14.5px;font-weight:600;color:var(--text)}
 .yt-card-b{margin-top:14px}
-.yt-chev{color:var(--text3);font-size:12px;transition:transform .2s}
-.yt-hint{font-size:12px;color:var(--text3);margin-bottom:10px;margin-top:4px}
+.yt-chev{color:var(--text3);font-size:10px}
+.yt-hint{font-size:12.5px;color:var(--text2);margin:6px 0 10px;line-height:1.55}
 .yt-grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px}
 .yt-grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;margin-bottom:14px}
-.yt-label{display:block;font-size:11px;color:var(--text3);margin-bottom:6px;font-weight:600;text-transform:uppercase;letter-spacing:.5px}
-.yt-input{width:100%;background:var(--bg);border:1px solid var(--border2);border-radius:var(--radius3);padding:10px 14px;color:var(--text);font-size:14px;font-family:var(--font);transition:all .2s}
-.yt-input:focus{outline:none;border-color:var(--red);box-shadow:0 0 0 3px var(--red-glow)}
+
+/* ---------- forms ---------- */
+.yt-label{display:block;font-size:12px;color:var(--text2);margin-bottom:5px;font-weight:500}
+.yt-input{width:100%;background:var(--bg);border:1px solid var(--border2);border-radius:var(--radius3);padding:7px 12px;color:var(--text);font-size:14px;font-family:var(--font);transition:border-color .15s,box-shadow .15s}
+.yt-input:focus{outline:none;border-color:var(--blue);box-shadow:0 0 0 3px rgba(35,131,226,.15)}
 .yt-input::placeholder{color:var(--text3)}
-.yt-sel{width:100%;background:var(--bg);border:1px solid var(--border2);border-radius:var(--radius3);padding:10px 14px;color:var(--text);font-size:14px;font-family:var(--font);cursor:pointer}
+.yt-sel{width:100%;background:var(--bg);border:1px solid var(--border2);border-radius:var(--radius3);padding:7px 10px;color:var(--text);font-size:13.5px;font-family:var(--font);cursor:pointer}
 .yt-input-row{display:flex;gap:10px;align-items:center}
 .yt-input-row .yt-input{flex:1}
 
-/* BUTTONS */
-.yt-btn{background:var(--red);border:none;border-radius:var(--radius3);padding:9px 22px;color:#fff;font-size:13px;font-weight:600;cursor:pointer;font-family:var(--font);white-space:nowrap;transition:all .2s;letter-spacing:.2px}
-.yt-btn:hover{background:var(--red2);box-shadow:0 4px 16px var(--red-glow);transform:translateY(-1px)}
-.yt-btn:active{transform:translateY(0)}
-.yt-btn:disabled{opacity:.4;transform:none;box-shadow:none}
-.yt-btn-o{background:transparent;border:1px solid var(--border2);border-radius:var(--radius3);padding:8px 18px;color:var(--text2);font-size:13px;font-weight:500;cursor:pointer;font-family:var(--font);white-space:nowrap;transition:all .2s}
-.yt-btn-o:hover{background:var(--surface2);border-color:var(--text3);color:var(--text)}
-.yt-btn-row{display:flex;gap:10px}
-.yt-btn-big{width:100%;background:linear-gradient(135deg,var(--red) 0%,#cc2020 100%);border:none;border-radius:var(--radius2);padding:14px;color:#fff;font-size:14px;font-weight:600;cursor:pointer;font-family:var(--font);transition:all .25s;letter-spacing:.2px}
-.yt-btn-big:hover{box-shadow:0 6px 24px var(--red-glow);transform:translateY(-1px)}
-.yt-btn-big-ld{background:var(--bg4)!important;color:var(--text3)!important;box-shadow:none!important;transform:none!important}
-.yt-btn-big-suggest{background:linear-gradient(135deg,#2563eb 0%,#1d4ed8 100%);margin-top:10px}
-.yt-btn-big-suggest:hover{box-shadow:0 6px 24px rgba(37,99,235,.35)}
-.yt-btn-use{background:transparent;border:1px solid var(--red);border-radius:var(--radius3);padding:6px 16px;color:var(--red);font-size:12px;font-weight:600;cursor:pointer;font-family:var(--font);transition:all .2s}
-.yt-btn-use:hover{background:var(--red);color:#fff;box-shadow:0 4px 12px var(--red-glow)}
-.yt-btn-remake{background:var(--surface2);border:1px solid var(--border2);border-radius:var(--radius3);padding:6px 16px;color:var(--text2);font-size:12px;font-weight:500;cursor:pointer;font-family:var(--font);transition:all .2s}
-.yt-btn-remake:hover{background:var(--surface3);color:var(--text)}
-.yt-btn-regen{background:transparent;border:1px solid var(--red);border-radius:var(--radius3);padding:6px 18px;color:var(--red);font-size:12px;font-weight:600;cursor:pointer;font-family:var(--font);white-space:nowrap;transition:all .2s}
-.yt-btn-regen:hover{background:var(--red-bg)}
+/* ---------- buttons ---------- */
+.yt-btn{background:var(--blue);border:1px solid var(--blue);border-radius:var(--radius3);padding:7px 16px;color:#fff;font-size:13.5px;font-weight:500;cursor:pointer;white-space:nowrap;transition:background .15s}
+.yt-btn:hover{background:var(--blue2);border-color:var(--blue2)}
+.yt-btn:disabled{opacity:.45;cursor:default}
+.yt-btn-o{background:var(--bg);border:1px solid var(--border2);border-radius:var(--radius3);padding:7px 14px;color:var(--text);font-size:13.5px;font-weight:500;cursor:pointer;white-space:nowrap;transition:background .15s}
+.yt-btn-o:hover{background:var(--surface)}
+.yt-btn-row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.yt-btn-big{width:100%;background:var(--blue);border:1px solid var(--blue);border-radius:var(--radius3);padding:11px;color:#fff;font-size:14px;font-weight:600;cursor:pointer;transition:background .15s}
+.yt-btn-big:hover{background:var(--blue2)}
+.yt-btn-big:disabled{opacity:.45}
+.yt-btn-big-ld{background:var(--surface2)!important;border-color:var(--border)!important;color:var(--text2)!important}
+.yt-btn-big-suggest{background:var(--text);border-color:var(--text)}
+.yt-btn-big-suggest:hover{background:#000}
+.yt-btn-use{background:var(--bg);border:1px solid var(--border2);border-radius:var(--radius3);padding:5px 13px;color:var(--text);font-size:12.5px;font-weight:500;cursor:pointer;transition:all .15s}
+.yt-btn-use:hover{border-color:var(--blue);color:var(--blue)}
+.yt-btn-use-sm{background:var(--bg);border:1px solid var(--border2);border-radius:var(--radius3);padding:4px 11px;color:var(--text);font-size:12px;font-weight:500;cursor:pointer}
+.yt-btn-use-sm:hover{border-color:var(--blue);color:var(--blue)}
+.yt-btn-remake{background:var(--bg);border:1px solid var(--border2);border-radius:var(--radius3);padding:4px 11px;color:var(--text2);font-size:12px;font-weight:500;cursor:pointer;transition:all .15s}
+.yt-btn-remake:hover{background:var(--surface);color:var(--text)}
+.yt-btn-regen{background:none;border:1px solid var(--border2);border-radius:var(--radius3);padding:5px 13px;color:var(--text2);font-size:12.5px;font-weight:500;cursor:pointer}
+.yt-btn-regen:hover{background:var(--surface);color:var(--text)}
+.yt-btn-gen{background:var(--blue);border:1px solid var(--blue);border-radius:var(--radius3);padding:9px 20px;color:#fff;font-size:13.5px;font-weight:600;cursor:pointer;flex:1;white-space:nowrap}
+.yt-btn-gen:hover{background:var(--blue2)}
+.yt-btn-studio{background:var(--text);border:1px solid var(--text);border-radius:var(--radius3);padding:9px 18px;color:var(--bg);font-size:13.5px;font-weight:600;cursor:pointer;white-space:nowrap;transition:opacity .15s}
+.yt-btn-studio:hover{opacity:.85}
+.yt-btn-ld{opacity:.55;pointer-events:none}
+.yt-btn-cp{background:var(--bg);border:1px solid var(--border2);border-radius:var(--radius3);padding:6px 14px;color:var(--text);font-size:12.5px;font-weight:500;cursor:pointer}
+.yt-btn-cp:hover{background:var(--surface)}
+.yt-btn-cp-sm{background:none;border:1px solid var(--border);border-radius:5px;padding:3px 10px;color:var(--text2);font-size:11.5px;font-weight:500;cursor:pointer}
+.yt-btn-cp-sm:hover{background:var(--surface);color:var(--text)}
+.yt-x{background:none;border:none;color:var(--text3);font-size:14px;cursor:pointer;padding:3px 7px;border-radius:5px}
+.yt-x:hover{background:var(--surface2);color:var(--red)}
 .yt-topic-btns{margin-top:10px;display:flex;gap:8px}
-.yt-x{background:none;border:none;color:var(--text3);font-size:16px;cursor:pointer;padding:4px 8px;border-radius:8px;transition:all .15s}
-.yt-x:hover{background:var(--surface3);color:var(--red)}
 
-/* SECTIONS */
-.yt-sec-h{display:flex;justify-content:space-between;align-items:center;margin-bottom:16px}
-.yt-sec-h h2{font-size:18px;font-weight:600;letter-spacing:-.2px}
+/* ---------- chips / niche grid ---------- */
 .yt-chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
-.yt-chip{display:flex;align-items:center;gap:6px;background:var(--surface2);border:1px solid var(--border);border-radius:20px;padding:6px 14px;font-size:12px;color:var(--text);font-weight:500}
-.yt-chip button{background:none;border:none;color:var(--text3);cursor:pointer;font-size:13px;transition:color .15s}
+.yt-chip{display:flex;align-items:center;gap:6px;background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:4px 12px;font-size:12.5px;color:var(--text)}
+.yt-chip button{background:none;border:none;color:var(--text3);cursor:pointer;font-size:12px}
 .yt-chip button:hover{color:var(--red)}
-
-/* NICHE GRID */
-.yt-niche-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:14px}
-.yt-niche-card{background:linear-gradient(180deg,rgba(255,255,255,.03),transparent 50%),var(--bg3);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;cursor:pointer;transition:all .3s cubic-bezier(.16,1,.3,1)}
-.yt-niche-card:hover{border-color:var(--red);box-shadow:0 10px 32px rgba(255,59,59,.14);transform:translateY(-4px) scale(1.01)}
-.yt-niche-cover-wrap{width:100%;height:120px;overflow:hidden;position:relative}
-.yt-niche-cover{width:100%;height:100%;object-fit:cover;transition:transform .3s}
-.yt-niche-card:hover .yt-niche-cover{transform:scale(1.05)}
-.yt-niche-card-body{padding:16px 20px}
+.yt-niche-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:14px}
+.yt-niche-card{background:var(--bg);border:1px solid var(--border);border-radius:var(--radius2);overflow:hidden;cursor:pointer;transition:border-color .15s,box-shadow .15s}
+.yt-niche-card:hover{border-color:var(--border2);box-shadow:var(--shadow2)}
+.yt-niche-cover-wrap{width:100%;height:110px;overflow:hidden}
+.yt-niche-cover{width:100%;height:100%;object-fit:cover}
+.yt-niche-card-body{padding:14px 16px}
 .yt-niche-top{display:flex;justify-content:space-between;align-items:start}
-.yt-niche-top h3{font-size:16px;font-weight:600;letter-spacing:-.1px}
-.yt-niche-desc{font-size:13px;color:var(--text2);margin-top:6px;line-height:1.4}
-.yt-niche-meta{font-size:11px;color:var(--text3);margin-top:10px;font-weight:500;display:flex;gap:14px}
-
-/* NICHE FORM */
+.yt-niche-top h3{font-size:15px;font-weight:600}
+.yt-niche-desc{font-size:13px;color:var(--text2);margin-top:4px;line-height:1.45}
+.yt-niche-meta{font-size:12px;color:var(--text3);margin-top:10px;display:flex;gap:14px}
 .yt-niche-form{display:flex;gap:16px;align-items:start}
 .yt-niche-cover-upload{flex-shrink:0}
-.yt-cover-drop{display:flex;flex-direction:column;align-items:center;justify-content:center;width:100px;height:100px;border:2px dashed var(--border2);border-radius:var(--radius3);cursor:pointer;transition:all .2s;overflow:hidden}
-.yt-cover-drop:hover{border-color:var(--red);background:var(--red-bg)}
-.yt-cover-icon{font-size:28px;opacity:.5}
-.yt-cover-text{font-size:10px;color:var(--text3);margin-top:4px;font-weight:600;text-transform:uppercase;letter-spacing:.5px}
+.yt-cover-drop{display:flex;flex-direction:column;align-items:center;justify-content:center;width:96px;height:76px;border:1px dashed var(--border2);border-radius:var(--radius3);cursor:pointer;overflow:hidden;background:var(--surface)}
+.yt-cover-drop:hover{border-color:var(--text3)}
 .yt-cover-preview{width:100%;height:100%;object-fit:cover}
+.yt-cover-text{font-size:11.5px;color:var(--text3)}
 .yt-niche-form-fields{flex:1;display:flex;flex-direction:column;gap:10px}
 
-/* STATUS */
-.yt-st{font-size:13px;margin-top:10px;color:var(--text2);font-weight:500}
-.yt-st.err{color:var(--red)}
-.yt-st.ok{color:var(--green)}
+/* ---------- info / empty ---------- */
+.yt-info-bar{display:flex;gap:22px;margin-bottom:20px;padding:12px 18px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius2);flex-wrap:wrap}
+.yt-info-item{display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--text2)}
+.yt-info-num{font-size:15px;font-weight:700;color:var(--text);margin-right:2px}
+.yt-empty-state{text-align:center;padding:52px 20px;border:1px dashed var(--border2);border-radius:var(--radius2)}
+.yt-empty-icon{display:none}
+.yt-empty-title{font-size:16px;font-weight:600;margin-bottom:6px}
+.yt-empty-desc{font-size:13.5px;color:var(--text2)}
 
-/* OUTLIERS TOGGLE & FILTER */
-.yt-toggle{display:flex;justify-content:space-between;align-items:center;cursor:pointer;margin-top:16px;padding:10px 0;border-top:1px solid var(--border)}
-.yt-toggle-t{font-size:13px;font-weight:600;color:var(--red);letter-spacing:-.1px}
-.yt-days-filter{display:flex;gap:6px;margin:10px 0 6px}
-.yt-days-chip{background:var(--surface);border:1px solid var(--border);border-radius:20px;padding:5px 16px;font-size:11px;font-weight:600;color:var(--text3);cursor:pointer;font-family:var(--font);transition:all .2s;letter-spacing:.3px}
-.yt-days-chip:hover{background:var(--surface2);color:var(--text2)}
-.yt-days-chip.active{background:var(--red);color:#fff;border-color:var(--red);box-shadow:0 2px 8px var(--red-glow)}
+/* ---------- research page ---------- */
+.yt-days-filter{display:flex;gap:6px;margin:12px 0}
+.yt-days-chip{background:var(--bg);border:1px solid var(--border2);border-radius:14px;padding:4px 13px;font-size:12px;font-weight:500;color:var(--text2);cursor:pointer}
+.yt-days-chip:hover{background:var(--surface)}
+.yt-days-chip.active{background:var(--text);border-color:var(--text);color:var(--bg)}
+.yt-out-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px;margin-top:10px}
+.yt-out-card{background:var(--bg);border:1px solid var(--border);border-radius:var(--radius2);overflow:hidden;transition:border-color .15s,box-shadow .15s}
+.yt-out-card:hover{border-color:var(--border2);box-shadow:var(--shadow2)}
+.yt-out-card-img-wrap{position:relative;aspect-ratio:16/9;background:var(--surface)}
+.yt-out-card-img{width:100%;height:100%;object-fit:cover;display:block}
+.yt-out-card-ratio{position:absolute;top:6px;left:6px;background:rgba(28,28,26,.85);color:#fff;font-size:10.5px;font-weight:600;padding:2px 7px;border-radius:4px}
+.yt-out-card-views{position:absolute;bottom:6px;right:6px;background:rgba(28,28,26,.85);color:#fff;font-size:10.5px;font-weight:600;padding:2px 7px;border-radius:4px}
+.yt-out-card-body{padding:10px 12px}
+.yt-out-card-title{font-size:12.5px;font-weight:600;line-height:1.4;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.yt-out-card-ch{font-size:11px;color:var(--text3);margin-top:4px}
+.yt-out-card-btns{margin-top:8px}
+.yt-btn-use-sm{width:100%}
+.yt-toggle{display:flex;justify-content:space-between;align-items:center;cursor:pointer;padding:10px 0 2px}
+.yt-toggle-t{font-size:13.5px;font-weight:600}
+.yt-topics{display:flex;flex-direction:column;gap:10px;margin-top:12px}
+.yt-topic{background:var(--bg);border:1px solid var(--border);border-radius:var(--radius2);padding:14px 16px}
+.yt-topic-done{opacity:.65}
+.yt-topic-h{display:flex;justify-content:space-between;gap:10px;align-items:start}
+.yt-topic-t{font-size:14px;font-weight:600;line-height:1.45}
+.yt-badge-used{font-size:10px;font-weight:600;background:var(--surface2);color:var(--text2);padding:2px 8px;border-radius:9px;white-space:nowrap}
+.yt-topic-a{font-size:13px;color:var(--text2);margin-top:5px;line-height:1.5}
+.yt-topic-w,.yt-topic-i{font-size:12px;color:var(--text3);margin-top:4px}
+.yt-st{font-size:13px;margin-top:10px;color:var(--text2);padding:8px 12px;border-radius:var(--radius3);background:var(--surface)}
+.yt-st.err{background:var(--red-bg);color:var(--red2)}
+.yt-st.ok{background:var(--green-bg);color:var(--green)}
+.yt-ld-box{display:flex;flex-direction:column;align-items:center;gap:10px;padding:26px;color:var(--text2);font-size:13px}
 
-/* VIDEO GRID */
-.yt-outliers{display:grid;gap:6px;margin-top:10px;max-height:400px;overflow-y:auto}
-.yt-out-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:14px;margin-top:14px;max-height:640px;overflow-y:auto;padding:4px}
-.yt-out-card{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;transition:all .25s}
-.yt-out-card:hover{border-color:var(--border2);box-shadow:var(--shadow2);transform:translateY(-3px)}
-.yt-out-card-img-wrap{position:relative;width:100%;aspect-ratio:16/9;background:var(--bg4);overflow:hidden}
-.yt-out-card-img{width:100%;height:100%;object-fit:cover;transition:transform .3s}
-.yt-out-card:hover .yt-out-card-img{transform:scale(1.04)}
-.yt-out-card-ratio{position:absolute;top:8px;right:8px;background:var(--green);color:#000;font-size:10px;font-weight:700;padding:3px 8px;border-radius:8px;letter-spacing:.3px}
-.yt-out-card-views{position:absolute;bottom:8px;right:8px;background:rgba(0,0,0,.8);backdrop-filter:blur(4px);color:#fff;font-size:10px;font-weight:600;padding:3px 8px;border-radius:6px}
-.yt-out-card-body{padding:12px 14px}
-.yt-out-card-title{font-size:13px;font-weight:500;line-height:1.4;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;margin-bottom:6px;color:var(--text)}
-.yt-out-card-ch{font-size:11px;color:var(--text3);margin-bottom:10px;font-weight:500}
-.yt-out-card-btns{display:flex;gap:6px}
-.yt-btn-use-sm{background:transparent;border:1px solid var(--red);border-radius:8px;padding:5px 14px;color:var(--red);font-size:11px;font-weight:600;cursor:pointer;font-family:var(--font);white-space:nowrap;transition:all .2s;letter-spacing:.2px}
-.yt-btn-use-sm:hover{background:var(--red);color:#fff;box-shadow:0 4px 12px var(--red-glow)}
-
-/* TOPICS */
-.yt-topics{display:grid;gap:8px}
-.yt-topic{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius2);padding:14px;transition:all .2s}
-.yt-topic:hover{background:var(--surface2);border-color:var(--border2)}
-.yt-topic-done{opacity:.4}
-.yt-topic-h{display:flex;justify-content:space-between;align-items:start;gap:8px}
-.yt-topic-t{font-size:14px;font-weight:500;line-height:1.4}
-.yt-badge-used{font-size:10px;font-weight:700;background:var(--red-bg);color:var(--red);padding:3px 10px;border-radius:6px;white-space:nowrap;letter-spacing:.3px}
-.yt-topic-a{font-size:13px;color:var(--text2);margin-top:6px;line-height:1.4}
-.yt-topic-w{font-size:12px;color:var(--green);margin-top:4px;font-weight:500}
-.yt-topic-i{font-size:12px;color:var(--text3);margin-top:3px}
-
-/* USED ITEMS */
-.yt-used-items{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius2);padding:12px 16px;margin-bottom:16px;font-size:12px;line-height:1.6}
-.yt-used-items-label{color:var(--green);font-weight:600;margin-right:8px}
-.yt-used-items-list{color:var(--text3)}
-
-/* TOPIC BANNER */
-.yt-topic-banner{background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius);padding:16px 20px;margin-bottom:20px;font-size:16px;font-weight:600;line-height:1.4;border-left:3px solid var(--red);display:flex;align-items:center;gap:12px;flex-wrap:wrap}
-.yt-version{font-size:11px;background:var(--red-bg);color:var(--red);padding:3px 10px;border-radius:8px;font-weight:600}
-.yt-version-sm{font-size:10px;background:var(--red-bg);color:var(--red);padding:2px 8px;border-radius:8px;font-weight:600}
-.yt-version-big{font-size:12px;background:var(--red);color:#fff;padding:4px 12px;border-radius:6px;font-weight:700;letter-spacing:.5px}
-.yt-ref-preview{display:flex;align-items:center;gap:14px;background:var(--blue-bg);border:1px solid rgba(77,159,255,.2);border-radius:var(--radius2);padding:14px;margin-bottom:16px;position:relative}
-.yt-ref-img{width:100px;height:56px;border-radius:8px;object-fit:cover}
-.yt-ref-label{font-size:13px;color:var(--blue);font-weight:500;flex:1}
-.yt-ref-rm{background:var(--surface2);border:1px solid var(--border);color:var(--text3);width:28px;height:28px;border-radius:8px;cursor:pointer;font-size:14px;display:flex;align-items:center;justify-content:center;transition:all .15s;flex-shrink:0}
-.yt-ref-rm:hover{background:var(--red-bg);color:var(--red);border-color:rgba(255,59,59,.3)}
-
-/* MODE SELECT */
-.yt-mode-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
-.yt-mode{background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius);padding:36px 28px;cursor:pointer;text-align:center;transition:all .3s;color:var(--text);font-family:var(--font)}
-.yt-mode:hover{transform:translateY(-4px);box-shadow:var(--shadow)}
-.yt-mode.auto:hover{border-color:var(--red);box-shadow:0 8px 32px var(--red-glow)}
-.yt-mode.manual:hover{border-color:var(--blue);box-shadow:0 8px 32px rgba(77,159,255,.2)}
-.yt-mode-ic{font-size:40px;margin-bottom:12px}
-.yt-mode-n{font-size:22px;font-weight:700;margin-bottom:8px;letter-spacing:-.2px}
-.yt-mode-d{font-size:13px;color:var(--text2);margin-bottom:16px}
-.yt-mode-b{display:inline-block;font-size:10px;font-weight:700;letter-spacing:1px;background:var(--red-bg);color:var(--red);padding:5px 16px;border-radius:20px;text-transform:uppercase}
-.yt-mode-b2{background:var(--blue-bg);color:var(--blue)}
-.yt-mtag{font-size:11px;font-weight:700;padding:4px 12px;border-radius:6px;letter-spacing:.5px}
-.yt-mtag.auto{background:var(--red-bg);color:var(--red)}
-.yt-mtag.manual{background:var(--blue-bg);color:var(--blue)}
-
-/* GENERATE CONTROLS */
-.yt-gen-ctrl{display:grid;grid-template-columns:1fr 1fr 2fr;gap:14px;align-items:end;margin-bottom:24px}
+/* ---------- generator ---------- */
+.yt-topic-banner{font-size:19px;font-weight:700;letter-spacing:-.01em;padding:14px 18px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius2);margin-bottom:18px;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.yt-version-big{font-size:10.5px;font-weight:600;background:var(--surface3);color:var(--text2);padding:3px 9px;border-radius:9px}
+.yt-mtag{font-size:10.5px;font-weight:600;padding:3px 10px;border-radius:9px;background:var(--surface2);color:var(--text2);text-transform:uppercase;letter-spacing:.4px}
+.yt-mode-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:20px}
+.yt-mode{display:flex;flex-direction:column;align-items:flex-start;gap:6px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius2);padding:22px;cursor:pointer;text-align:left;transition:border-color .15s,box-shadow .15s}
+.yt-mode:hover{border-color:var(--border2);box-shadow:var(--shadow2)}
+.yt-mode-ic{display:none}
+.yt-mode-n{font-size:16px;font-weight:700}
+.yt-mode-d{font-size:13px;color:var(--text2)}
+.yt-mode-b{font-size:10px;font-weight:600;letter-spacing:.5px;background:var(--blue-bg);color:var(--blue);padding:3px 9px;border-radius:9px;margin-top:4px}
+.yt-mode-b2{background:var(--surface2);color:var(--text2)}
+.yt-used-items{font-size:12.5px;color:var(--text2);background:var(--surface);border:1px solid var(--border);border-radius:var(--radius3);padding:10px 14px;margin-bottom:16px;line-height:1.6}
+.yt-used-items-label{font-weight:600;color:var(--text);margin-right:6px}
+.yt-gen-ctrl{display:grid;grid-template-columns:1fr 1fr 2fr;gap:14px;align-items:end;margin-bottom:22px}
 .yt-gen-btns{display:flex;gap:8px;flex-wrap:wrap}
-.yt-btn-gen{background:linear-gradient(135deg,var(--red) 0%,#cc2020 100%);border:none;border-radius:var(--radius3);padding:11px 26px;color:#fff;font-size:14px;font-weight:600;cursor:pointer;font-family:var(--font);flex:1;white-space:nowrap;transition:all .25s;letter-spacing:.2px}
-.yt-btn-gen:hover{box-shadow:0 6px 24px var(--red-glow);transform:translateY(-1px)}
-.yt-btn-studio{background:linear-gradient(135deg,#7c3aed 0%,#4f46e5 100%);border:none;border-radius:var(--radius3);padding:11px 22px;color:#fff;font-size:14px;font-weight:600;cursor:pointer;font-family:var(--font);white-space:nowrap;transition:all .25s;letter-spacing:.2px}
-.yt-btn-studio:hover{box-shadow:0 6px 24px rgba(124,58,237,.4);transform:translateY(-1px)}
-.yt-seo-board{display:flex;flex-direction:column;gap:0;margin-bottom:24px}
-.yt-seo-card{padding:14px 20px}
-.yt-seo-niche{font-size:11px;font-weight:500;color:var(--text3);margin-left:10px}
-.yt-btn-thb{background:var(--blue-bg);border:1px solid rgba(77,159,255,.2);border-radius:var(--radius3);padding:10px 20px;color:var(--blue);font-size:13px;font-weight:600;cursor:pointer;font-family:var(--font);white-space:nowrap;transition:all .2s}
-.yt-btn-thb:hover{background:rgba(77,159,255,.2);box-shadow:0 4px 12px rgba(77,159,255,.15)}
-.yt-btn-ref{background:var(--blue-bg);border:1px solid rgba(77,159,255,.2);border-radius:var(--radius3);padding:10px 18px;color:var(--blue);font-size:13px;font-weight:600;cursor:pointer;font-family:var(--font);white-space:nowrap;transition:all .2s}
-.yt-btn-ref:hover{background:rgba(77,159,255,.2)}
-.yt-btn-ld{background:var(--bg4)!important;color:var(--text3)!important;border-color:var(--border)!important;box-shadow:none!important;transform:none!important}
-
-/* TABS */
-.yt-tabs{display:flex;gap:2px}
-.yt-tab{flex:1;background:var(--surface);border:1px solid var(--border);border-bottom:none;border-radius:var(--radius2) var(--radius2) 0 0;padding:12px 18px;color:var(--text3);font-size:13px;font-weight:600;cursor:pointer;font-family:var(--font);transition:all .2s;text-align:center}
-.yt-tab:hover{color:var(--text2);background:var(--surface2)}
-.yt-tab.active{background:var(--bg3);color:var(--text);border-color:var(--border2)}
-.yt-out-panel{background:var(--bg3);border:1px solid var(--border2);border-radius:0 0 var(--radius) var(--radius);padding:20px}
+.yt-tabs{display:flex;gap:2px;border-bottom:1px solid var(--border);margin-bottom:0}
+.yt-tab{background:none;border:none;border-bottom:2px solid transparent;padding:9px 16px;color:var(--text2);font-size:13.5px;font-weight:500;cursor:pointer;margin-bottom:-1px}
+.yt-tab:hover{color:var(--text)}
+.yt-tab.active{color:var(--text);border-bottom-color:var(--text);font-weight:600}
+.yt-out-panel{padding:20px 2px}
 .yt-out-h{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}
-.yt-cc{font-size:12px;font-family:var(--mono);color:var(--green);font-weight:500}
+.yt-cc{font-size:12px;font-family:var(--mono);color:var(--text2)}
 .yt-cc.over{color:var(--red)}
-.yt-btn-cp{background:var(--red-bg);border:none;border-radius:var(--radius3);padding:7px 18px;color:var(--red);font-size:12px;font-weight:600;cursor:pointer;font-family:var(--font);transition:all .2s}
-.yt-btn-cp:hover{background:rgba(255,59,59,.2)}
-.yt-pre{background:var(--bg);border:1px solid var(--border);border-radius:var(--radius3);padding:18px;color:var(--text2);font-size:12.5px;font-family:var(--mono);line-height:1.8;white-space:pre-wrap;word-break:break-word;max-height:500px;overflow:auto}
-
-/* OPTIMIZE SECTIONS */
-.yt-opt-section{margin-bottom:20px;padding-bottom:16px;border-bottom:1px solid var(--border)}
-.yt-opt-section:last-child{border-bottom:none;margin-bottom:0;padding-bottom:0}
-.yt-opt-h{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}
-.yt-opt-label{font-size:13px;font-weight:600;color:var(--text);letter-spacing:-.1px}
-.yt-btn-cp-sm{background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:4px 12px;color:var(--text2);font-size:11px;font-weight:600;cursor:pointer;font-family:var(--font);transition:all .15s}
-.yt-btn-cp-sm:hover{background:var(--surface3);color:var(--text)}
-.yt-opt-title{display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius3);margin-bottom:6px;cursor:pointer;font-size:13px;transition:all .2s;color:var(--text)}
-.yt-opt-title:hover{background:var(--surface2);border-color:var(--border2)}
-.yt-opt-num{width:24px;height:24px;background:var(--red);color:#fff;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0}
-.yt-opt-copied{font-size:11px;margin-left:auto;color:var(--green)}
+.yt-pre{white-space:pre-wrap;font-family:var(--mono);font-size:13px;line-height:1.65;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius2);padding:18px;color:var(--text);max-height:520px;overflow-y:auto}
+.yt-pre-sm{font-size:12.5px;padding:14px;max-height:300px}
+.yt-opt-section{margin-bottom:22px}
+.yt-opt-h{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
+.yt-opt-label{font-size:12px;font-weight:600;letter-spacing:.4px;text-transform:uppercase;color:var(--text3)}
+.yt-opt-title{display:flex;align-items:center;gap:10px;padding:9px 12px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius3);font-size:13.5px;cursor:pointer;margin-bottom:6px;transition:background .12s}
+.yt-opt-title:hover{background:var(--surface)}
+.yt-opt-num{display:inline-flex;align-items:center;justify-content:center;min-width:20px;height:20px;border-radius:5px;background:var(--surface2);color:var(--text2);font-size:11px;font-weight:600}
+.yt-opt-copied{margin-left:auto;font-size:12px}
+.yt-opt-desc-card{margin-bottom:12px}
+.yt-opt-desc-head{display:flex;align-items:center;gap:10px;margin-bottom:6px}
+.yt-opt-desc-tone{font-size:12px;color:var(--text2);font-weight:500}
 .yt-opt-tags{display:flex;flex-wrap:wrap;gap:6px}
-.yt-opt-tag{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:6px 14px;font-size:12px;color:var(--text2);cursor:pointer;transition:all .2s;font-weight:500}
-.yt-opt-tag:hover{background:var(--surface2);border-color:var(--border2);color:var(--text)}
-.yt-pre-sm{max-height:300px}
-.yt-opt-desc-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius2);padding:14px;margin-bottom:10px;transition:all .2s}
-.yt-opt-desc-card:hover{border-color:var(--border2)}
-.yt-opt-desc-head{display:flex;align-items:center;gap:8px;margin-bottom:10px}
-.yt-opt-desc-tone{font-size:12px;color:var(--text2);font-weight:500;flex:1}
+.yt-opt-tag{font-size:12px;background:var(--surface);border:1px solid var(--border);padding:4px 11px;border-radius:12px;cursor:pointer;color:var(--text2)}
+.yt-opt-tag:hover{border-color:var(--border2);color:var(--text)}
 
-/* LOADING */
-.yt-loading{display:flex;align-items:center;justify-content:center;min-height:100vh;background:var(--bg)}
-.yt-ld-box{text-align:center;padding:36px}
-.yt-ld-box p{color:var(--text3);font-size:13px;margin-top:10px;font-weight:500}
-.yt-spin{width:28px;height:28px;border:2px solid var(--border2);border-top-color:var(--red);border-radius:50%;animation:vSpin .7s linear infinite;margin:0 auto}
-.yt-empty{text-align:center;padding:48px;color:var(--text3)}
-
-/* THUMBNAIL WORKFLOW */
-.yt-th-choose{padding:10px 0}
-.yt-th-choose-label{font-size:14px;color:var(--text2);margin-bottom:16px;font-weight:500}
+/* ---------- thumbnails ---------- */
+.yt-ref-preview{display:flex;align-items:center;gap:12px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius2);padding:10px 14px;margin-bottom:16px}
+.yt-ref-img{width:96px;border-radius:6px}
+.yt-ref-label{font-size:12.5px;color:var(--text2);flex:1}
+.yt-ref-rm{background:none;border:none;color:var(--text3);cursor:pointer;font-size:13px}
+.yt-th-choose{padding:8px 0}
+.yt-th-choose-label{font-size:14px;font-weight:600;margin-bottom:14px}
 .yt-th-choose-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
-.yt-th-choose-btn{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:28px 24px;cursor:pointer;text-align:center;transition:all .3s;color:var(--text);font-family:var(--font);display:flex;flex-direction:column;align-items:center;gap:8px}
-.yt-th-choose-btn:hover{transform:translateY(-3px);border-color:var(--red);box-shadow:0 8px 32px var(--red-glow)}
-.yt-th-choose-ic{font-size:36px}
-.yt-th-choose-n{font-size:16px;font-weight:700;letter-spacing:-.1px}
-.yt-th-choose-d{font-size:12px;color:var(--text3);line-height:1.4}
-.yt-th-choose-tag{font-size:10px;font-weight:700;background:var(--green-bg);color:var(--green);padding:3px 10px;border-radius:6px;margin-top:4px}
-
-.yt-th-ref-section{margin-bottom:16px}
-.yt-th-ref-layout{display:grid;grid-template-columns:300px 1fr;gap:20px;align-items:start}
-.yt-th-ref-img-col{display:flex;flex-direction:column;gap:8px}
-.yt-th-ref-preview{position:relative;border-radius:var(--radius);overflow:hidden;border:2px solid var(--border2)}
-.yt-th-ref-big{width:100%;aspect-ratio:16/9;object-fit:cover;display:block}
-.yt-th-ref-overlay{position:absolute;bottom:0;left:0;right:0;display:flex;gap:8px;padding:10px;background:linear-gradient(transparent,rgba(0,0,0,.8));opacity:0;transition:opacity .2s}
-.yt-th-ref-preview:hover .yt-th-ref-overlay{opacity:1}
-.yt-th-ref-change{background:rgba(255,255,255,.15);backdrop-filter:blur(8px);border:1px solid rgba(255,255,255,.2);border-radius:6px;padding:6px 14px;color:#fff;font-size:11px;font-weight:600;cursor:pointer;font-family:var(--font);transition:all .15s;text-align:center}
-.yt-th-ref-change:hover{background:rgba(255,255,255,.25)}
-.yt-th-ref-drop-big{display:flex;flex-direction:column;align-items:center;justify-content:center;width:100%;aspect-ratio:16/9;border:2px dashed var(--border2);border-radius:var(--radius);cursor:pointer;transition:all .2s;gap:8px}
-.yt-th-ref-drop-big:hover{border-color:var(--red);background:var(--red-bg)}
-.yt-th-ref-drop-ic{font-size:40px;opacity:.5}
-.yt-th-ref-drop-t{font-size:13px;color:var(--text2);font-weight:600}
-.yt-th-ref-drop-d{font-size:11px;color:var(--text3)}
-
-.yt-th-prompt-col{display:flex;flex-direction:column;gap:10px}
-.yt-th-prompt-header{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}
-.yt-th-prompt-area{font-family:var(--mono);font-size:12.5px;line-height:1.7;resize:vertical;min-height:120px}
-.yt-th-prompt-actions{display:flex;gap:8px}
-
-.yt-th-refine{margin-top:12px;padding-top:12px;border-top:1px solid var(--border)}
-.yt-th-refine-row{display:flex;gap:10px;align-items:start}
-.yt-th-refine-input{flex:1;font-family:var(--font);font-size:13px;line-height:1.5;resize:vertical;min-height:50px}
-.yt-btn-refine{background:var(--blue-bg);border:1px solid rgba(77,159,255,.2);border-radius:var(--radius3);padding:10px 20px;color:var(--blue);font-size:12px;font-weight:600;cursor:pointer;font-family:var(--font);white-space:nowrap;transition:all .2s;align-self:start}
-.yt-btn-refine:hover{background:rgba(77,159,255,.2);box-shadow:0 4px 12px rgba(77,159,255,.15)}
-.yt-btn-refine:disabled{opacity:.4}
-
-.yt-th-scratch-layout{display:grid;grid-template-columns:1fr 200px;gap:20px;align-items:start}
+.yt-th-choose-btn{display:flex;flex-direction:column;align-items:flex-start;gap:6px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius2);padding:20px;cursor:pointer;text-align:left;transition:border-color .15s,box-shadow .15s}
+.yt-th-choose-btn:hover{border-color:var(--border2);box-shadow:var(--shadow2)}
+.yt-th-choose-ic{display:none}
+.yt-th-choose-n{font-size:14.5px;font-weight:600}
+.yt-th-choose-d{font-size:12.5px;color:var(--text2);line-height:1.5}
+.yt-th-choose-tag{font-size:10.5px;font-weight:600;background:var(--blue-bg);color:var(--blue);padding:3px 9px;border-radius:9px}
+.yt-th-ref-section{margin-top:6px}
+.yt-th-ref-layout{display:grid;grid-template-columns:340px 1fr;gap:20px}
+.yt-th-scratch-layout{display:grid;grid-template-columns:1fr 260px;gap:20px}
+.yt-th-ref-preview{position:relative;border-radius:var(--radius2);overflow:hidden;border:1px solid var(--border)}
+.yt-th-ref-big{width:100%;display:block}
+.yt-th-ref-overlay{position:absolute;bottom:8px;right:8px;display:flex;gap:6px}
+.yt-th-ref-change{background:rgba(28,28,26,.8);border:none;border-radius:6px;padding:5px 12px;color:#fff;font-size:11.5px;cursor:pointer}
+.yt-th-ref-drop-big{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;aspect-ratio:16/9;border:1px dashed var(--border2);border-radius:var(--radius2);cursor:pointer;background:var(--surface)}
+.yt-th-ref-drop-big:hover{border-color:var(--text3)}
+.yt-th-ref-drop-ic{display:none}
+.yt-th-ref-drop-t{font-size:13.5px;font-weight:600}
+.yt-th-ref-drop-d{font-size:12px;color:var(--text3)}
+.yt-th-prompt-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;gap:10px;flex-wrap:wrap}
+.yt-th-prompt-area{font-family:var(--mono);font-size:12.5px;line-height:1.6;resize:vertical}
+.yt-th-prompt-actions{margin-top:8px}
+.yt-th-refine{margin-top:14px}
+.yt-th-refine-row{display:flex;gap:8px;align-items:stretch}
+.yt-th-refine-input{flex:1;font-size:13px;resize:vertical}
+.yt-btn-refine{background:var(--bg);border:1px solid var(--border2);border-radius:var(--radius3);padding:6px 14px;color:var(--text);font-size:12.5px;font-weight:500;cursor:pointer;white-space:nowrap}
+.yt-btn-refine:hover{background:var(--surface)}
 .yt-th-scratch-refs{display:flex;flex-direction:column;gap:8px}
+.yt-thumb-drop{display:flex;align-items:center;justify-content:center;border:1px dashed var(--border2);border-radius:var(--radius3);padding:14px;font-size:12.5px;color:var(--text2);cursor:pointer;background:var(--surface)}
+.yt-thumb-drop:hover{border-color:var(--text3)}
+.yt-thumb-ref-list{display:flex;flex-wrap:wrap;gap:8px}
+.yt-thumb-ref-card{position:relative;width:86px}
+.yt-thumb-ref-img{width:100%;border-radius:6px;border:1px solid var(--border)}
+.yt-thumb-ref-rm{position:absolute;top:-6px;right:-6px;background:var(--text);color:var(--bg);border:none;border-radius:50%;width:18px;height:18px;font-size:10px;cursor:pointer}
+.yt-th-gen-bar{margin-top:16px;padding:14px 16px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius2)}
+.yt-thumb-options{display:flex;gap:18px;align-items:end;flex-wrap:wrap}
+.yt-thumb-check{display:flex;align-items:center;gap:7px;font-size:13px;color:var(--text2);cursor:pointer}
+.yt-thumb-check input{accent-color:var(--blue)}
+.yt-thumb-grid-header{display:flex;justify-content:space-between;align-items:center;margin:18px 0 10px}
+.yt-thumb-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:14px}
+.yt-thumb-item{border:1px solid var(--border);border-radius:var(--radius2);overflow:hidden;background:var(--bg)}
+.yt-thumb-loader{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;aspect-ratio:16/9;color:var(--text3);font-size:12px;background:var(--surface)}
+.yt-thumb-result-img{width:100%;display:block;cursor:zoom-in}
+.yt-thumb-actions{display:flex;gap:6px;padding:10px;flex-wrap:wrap}
+.yt-thumb-dl{background:var(--blue);border:none;border-radius:var(--radius3);padding:5px 12px;color:#fff;font-size:12px;font-weight:500;cursor:pointer;text-decoration:none}
+.yt-thumb-dl:hover{background:var(--blue2)}
+.yt-thumb-regen{background:var(--bg);border:1px solid var(--border2);border-radius:var(--radius3);padding:5px 11px;color:var(--text2);font-size:12px;cursor:pointer}
+.yt-thumb-regen:hover{background:var(--surface);color:var(--text)}
+.yt-thumb-error{padding:16px;font-size:12.5px;color:var(--red2);background:var(--red-bg)}
 
-.yt-th-gen-bar{margin-top:16px;padding-top:16px;border-top:1px solid var(--border)}
+/* ---------- seo board ---------- */
+.yt-seo-board{display:flex;flex-direction:column}
+.yt-seo-card{padding:14px 18px}
+.yt-seo-niche{font-size:12px;font-weight:400;color:var(--text3);margin-left:10px}
 
-/* THUMBNAIL GENERATOR (kept) */
-.yt-thumb-setup{margin-bottom:20px}
-.yt-thumb-setup-top{display:flex;gap:16px;align-items:start}
-.yt-thumb-refs-col{width:200px;flex-shrink:0;display:flex;flex-direction:column;gap:8px}
-.yt-thumb-drop{display:flex;align-items:center;justify-content:center;border:2px dashed var(--border2);border-radius:var(--radius3);padding:16px 12px;text-align:center;cursor:pointer;transition:all .2s;color:var(--text3);font-size:12px;font-weight:500}
-.yt-thumb-drop:hover{border-color:var(--red);background:var(--red-bg);color:var(--text2)}
-.yt-thumb-ref-list{display:flex;gap:6px;flex-wrap:wrap}
-.yt-thumb-ref-card{position:relative;flex-shrink:0}
-.yt-thumb-ref-img{width:90px;height:51px;border-radius:6px;object-fit:cover;border:2px solid var(--border2)}
-.yt-thumb-ref-badge{position:absolute;top:3px;left:3px;background:var(--red);color:#fff;font-size:8px;font-weight:700;padding:1px 5px;border-radius:3px;letter-spacing:.5px}
-.yt-thumb-ref-rm{position:absolute;top:-5px;right:-5px;background:var(--red);color:#fff;border:none;border-radius:50%;width:18px;height:18px;font-size:10px;cursor:pointer;display:flex;align-items:center;justify-content:center;opacity:0;transition:opacity .15s}
-.yt-thumb-ref-card:hover .yt-thumb-ref-rm{opacity:1}
-.yt-thumb-ref-rm-show{opacity:.7}
-.yt-thumb-ref-rm-show:hover{opacity:1}
-.yt-thumb-fields{flex:1;display:flex;flex-direction:column;gap:10px}
-.yt-thumb-desc-wrap{flex:1}
-.yt-thumb-textarea{resize:vertical;min-height:80px;font-family:var(--font);line-height:1.5}
-.yt-thumb-options{display:flex;gap:12px;align-items:end}
-.yt-thumb-options>div{flex:1}
-.yt-thumb-check{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text2);cursor:pointer;padding:10px 0;white-space:nowrap;font-weight:500}
-.yt-thumb-check input{accent-color:var(--red)}
-.yt-thumb-grid-header{display:flex;justify-content:space-between;align-items:center;margin:16px 0 8px;padding-top:16px;border-top:1px solid var(--border)}
-.yt-thumb-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:16px;margin-top:8px}
-.yt-thumb-item{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;transition:all .25s}
-.yt-thumb-item:hover{border-color:var(--border2);box-shadow:var(--shadow2)}
-.yt-thumb-loader{padding:60px 20px;text-align:center}
-.yt-thumb-loader p{color:var(--text3);font-size:12px;margin-top:10px;font-weight:500}
-.yt-thumb-result-img{width:100%;aspect-ratio:16/9;object-fit:cover;cursor:pointer;transition:transform .3s}
-.yt-thumb-result-img:hover{transform:scale(1.02)}
-.yt-thumb-actions{display:flex;gap:8px;padding:10px 12px}
-.yt-thumb-dl{flex:1;text-align:center;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius3);padding:7px;color:var(--text2);font-size:11px;font-weight:600;text-decoration:none;transition:all .2s;font-family:var(--font)}
-.yt-thumb-dl:hover{background:var(--surface3);color:var(--text)}
-.yt-thumb-regen{flex:1;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius3);padding:7px;color:var(--text2);font-size:11px;font-weight:600;cursor:pointer;transition:all .2s;font-family:var(--font)}
-.yt-thumb-regen:hover{background:var(--red-bg);color:var(--red);border-color:rgba(255,59,59,.2)}
-.yt-thumb-error{padding:30px;text-align:center;color:var(--red);font-size:12px;font-weight:500}
-
-/* SCROLLBAR */
-::-webkit-scrollbar{width:6px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:var(--border2);border-radius:3px}::-webkit-scrollbar-thumb:hover{background:var(--text3)}
-
-/* RESPONSIVE */
-@media(max-width:768px){.yt-sidebar{display:none}.yt-main{padding:16px 20px}.yt-grid2,.yt-gen-ctrl{grid-template-columns:1fr}.yt-gen-btns{grid-column:1/-1}.yt-mode-grid,.yt-niche-grid,.yt-th-choose-grid{grid-template-columns:1fr}.yt-out-grid{grid-template-columns:repeat(auto-fill,minmax(160px,1fr))}.yt-hero-stats{gap:16px}.yt-hero-title{font-size:22px}.yt-info-bar{gap:12px}.yt-th-ref-layout,.yt-th-scratch-layout{grid-template-columns:1fr}}
+@media(max-width:900px){
+  .nv-side{position:fixed;z-index:60;box-shadow:var(--shadow)}
+  .yt-main{padding:56px 22px 60px}
+  .nv-stats{grid-template-columns:repeat(2,1fr)}
+  .yt-grid2,.yt-gen-ctrl,.yt-mode-grid,.yt-th-choose-grid,.yt-th-ref-layout,.yt-th-scratch-layout{grid-template-columns:1fr}
+  .yt-gen-btns{grid-column:1/-1}
+  .nv-set-row{flex-direction:column;align-items:stretch;gap:8px}
+  .nv-set-input{max-width:none}
+}
 `;
