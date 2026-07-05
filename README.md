@@ -85,7 +85,7 @@ Media binaries (rendered videos, generated frames) stay in the browser's Indexed
 3. **Link them** — in the **Convex dashboard → Settings → Environment Variables**, set `CLERK_JWT_ISSUER_DOMAIN` to your Clerk **Frontend API URL** (e.g. `https://your-app.clerk.accounts.dev`). This is what `convex/auth.config.js` validates.
 4. Restart `npm run dev`. You'll get a sign-in screen; after signing in, your workspace syncs.
 
-On Vercel, set the same `VITE_CONVEX_URL` and `VITE_CLERK_PUBLISHABLE_KEY` in the project's Environment Variables, and run `npx convex deploy` for the production Convex deployment.
+On Vercel this is automated — see **Deploy to Vercel** below: adding a `CONVEX_DEPLOY_KEY` makes each build push `convex/` to production and inject `VITE_CONVEX_URL` for you.
 
 **Migration:** the first time you sign in, any work already in your browser (from local-only mode) is imported into your account automatically.
 
@@ -97,6 +97,15 @@ The app is a static Vite SPA — Vercel builds it with zero config beyond the in
 2. In the Vercel dashboard: **Add New → Project → Import** this repo. Framework preset auto-detects as Vite; `vercel.json` sets the build command, output dir (`dist`), SPA rewrites, and skips the yt-dlp binary download (not needed in the static deploy). Click **Deploy**.
    - Or locally: `npx vercel` (first run prompts login), then `npx vercel --prod`.
 3. Open the app, go to **Settings**, paste your API keys (stored in your browser only).
+
+**Turning on cloud sync (Convex + Clerk) for production** — optional; without it the deploy runs fine on the localStorage fallback:
+
+1. In the **Convex dashboard → your project → Settings → Deploy Keys**, generate a **Production** deploy key.
+2. In **Vercel → Project → Settings → Environment Variables**, add:
+   - `CONVEX_DEPLOY_KEY` — the production deploy key from step 1.
+   - `VITE_CLERK_PUBLISHABLE_KEY` — your Clerk publishable key.
+3. In the **Convex dashboard → Settings → Environment Variables**, set `CLERK_JWT_ISSUER_DOMAIN` to your Clerk Frontend API URL (what `convex/auth.config.js` validates).
+4. Redeploy. The build (`scripts/vercel-build.mjs`) sees `CONVEX_DEPLOY_KEY`, runs `npx convex deploy --cmd 'npm run build'` to push `convex/` to production, and auto-injects `VITE_CONVEX_URL`. No key ⇒ it falls back to a plain `npm run build` and the app stays local-only.
 
 **One caveat:** the `/api/yt` yt-dlp download route only runs under `npm run dev`/`npm run preview` (it's a Node middleware). On Vercel it isn't deployed — but the **Learn from a video** feature doesn't need it, because Gemini reads YouTube links directly. Everything else is fully client-side and works on Vercel as-is.
 
