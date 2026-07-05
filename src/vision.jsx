@@ -1,5 +1,6 @@
 import { useState, useRef } from "react";
 import { claudeVisionMulti, groqTranscribeSegments, extractAudioWav16k, parseJson, fmtTime } from "./pipeline";
+import { fetchYouTubeVideo, ytId } from "./yt";
 
 // Learn from a video: detect shots frame-by-frame, extract keyframes, transcribe the audio,
 // and have Claude reverse-engineer the video's structure into a reusable template (Video DNA)
@@ -82,12 +83,26 @@ export default function Vision({ clKey, groqKey }) {
   const [meta, setMeta] = useState(null);     // {duration, shots, avgShot}
   const [name, setName] = useState("");
   const [err, setErr] = useState("");
+  const [ytUrl, setYtUrl] = useState("");
+  const [fetching, setFetching] = useState(false);
+  const [fetchSt, setFetchSt] = useState("");
   const videoRef = useRef(null);
   const running = phase && phase !== "done";
 
   const saveTemplates = t => { setTemplates(t); ss("vr8-templates", t); };
 
-  const analyze = async (f) => {
+  const fetchFromYouTube = async () => {
+    if (!ytId(ytUrl)) { setErr("Paste a full YouTube link (watch, shorts, or youtu.be)"); return; }
+    if (!clKey) { setErr("Add your Anthropic key in Settings first — Claude does the visual analysis."); return; }
+    setErr(""); setFetching(true); setFetchSt("Starting…");
+    try {
+      const { file: f, title } = await fetchYouTubeVideo(ytUrl, { onStatus: setFetchSt });
+      setFetching(false); setFetchSt("");
+      await analyze(f, title);
+    } catch (e) { setErr(e.message); setFetching(false); setFetchSt(""); }
+  };
+
+  const analyze = async (f, displayName) => {
     if (!clKey) { setErr("Add your Anthropic key in Settings first — Claude does the visual analysis."); return; }
     setErr(""); setDna(null); setFrames([]); setMeta(null); setFile(f);
     const url = URL.createObjectURL(f);
@@ -127,7 +142,7 @@ export default function Vision({ clKey, groqKey }) {
         kf.map(s => s.img), clKey);
       const parsed = parseJson(raw);
       setDna(parsed);
-      setName(f.name.replace(/\.[^.]+$/, "").slice(0, 40));
+      setName((displayName || f.name.replace(/\.[^.]+$/, "")).slice(0, 40));
       setPhase("done");
     } catch (e) { setErr(e.message); setPhase(""); }
   };
@@ -146,11 +161,19 @@ export default function Vision({ clKey, groqKey }) {
     <video ref={videoRef} style={{ display: "none" }} playsInline/>
 
     <div className="yt-card">
-      {!running && !dna && <label className="vn-drop">
-        <input type="file" accept="video/*" style={{ display: "none" }} onChange={e => { const f = e.target.files?.[0]; if (f) analyze(f); e.target.value = ""; }}/>
-        <span className="vn-drop-t">Drop a video file here</span>
-        <span className="vn-drop-d">mp4 / webm / mov · analysis runs entirely in your browser · YouTube videos: download the file first{groqKey ? "" : " · add a Groq key in Settings to include the transcript"}</span>
-      </label>}
+      {!running && !fetching && !dna && <>
+        <div className="yt-input-row">
+          <input className="yt-input" placeholder="Paste a YouTube link — https://youtube.com/watch?v=…" value={ytUrl} onChange={e => setYtUrl(e.target.value)} onKeyDown={e => e.key === "Enter" && fetchFromYouTube()}/>
+          <button className="yt-btn" onClick={fetchFromYouTube} disabled={!ytUrl.trim()}>Fetch & analyze</button>
+        </div>
+        <p className="yt-hint">YouTube's own servers block browsers from reading streams (no CORS), so the link is pulled through live community gateways (Piped / Invidious) — the app discovers working ones automatically. If all mirrors are down, drop the file below.</p>
+        <label className="vn-drop" style={{ marginTop: 10 }}>
+          <input type="file" accept="video/*" style={{ display: "none" }} onChange={e => { const f = e.target.files?.[0]; if (f) analyze(f); e.target.value = ""; }}/>
+          <span className="vn-drop-t">…or drop a video file here</span>
+          <span className="vn-drop-d">mp4 / webm / mov · analysis runs entirely in your browser{groqKey ? "" : " · add a Groq key in Settings to include the transcript"}</span>
+        </label>
+      </>}
+      {fetching && <div className="yt-ld-box"><div className="yt-spin"/><p>{fetchSt}</p></div>}
 
       {running && <div className="vn-run">
         <div className="yt-ld-box"><div className="yt-spin"/>

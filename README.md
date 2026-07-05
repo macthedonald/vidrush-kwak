@@ -13,7 +13,7 @@ Clean, quiet interface: light theme, left-sidebar navigation (Home / Niche finde
 - **Save niche** or **Research this niche →** — saving auto-seeds the breakout channels as competitors, and Research picks up from there: scan → topics → brief → Studio. One unbroken flow from "does this niche work?" to a finished video.
 
 **Learn from a video (vision)**
-- Drop any video file: the app detects every cut frame by frame, extracts a keyframe per shot, transcribes the audio (Groq), and Claude reverse-engineers the structure — hook technique, phase order (real footage → commentary over b-roll → graphics), cut pacing, visual mix, narration devices.
+- Paste a **YouTube link** (pulled through auto-discovered Piped/Invidious gateways — YouTube itself blocks direct browser reads via CORS) or drop any video file: the app detects every cut frame by frame, extracts a keyframe per shot, transcribes the audio (Groq), and Claude reverse-engineers the structure — hook technique, phase order (real footage → commentary over b-roll → graphics), cut pacing, visual mix, narration devices.
 - Saved as a **template**: pick it in the Studio toolbar and the script, storyboard pacing, and per-shot source types follow it — shots in "real footage" phases are auto-sourced from stock providers instead of generated.
 
 **Self-learning memory**
