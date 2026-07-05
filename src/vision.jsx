@@ -7,8 +7,7 @@ import { ytId } from "./yt";
 // Studio replicates — hook style, phase order (real footage → commentary over b-roll →
 // graphics), cut pacing, narration devices.
 
-const ls = (k, fb) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : fb; } catch { return fb; } };
-const ss = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} };
+import { cloudGet as ls, cloudSet as ss } from "./cloud.js";
 
 const SYS_DNA = `You are a video structure analyst. Watch the entire video and reverse-engineer HOW it works so another video on a completely different topic can replicate the exact structure and pacing.
 Pay attention to: which segments use REAL footage (archival, news, phone clips, interviews, real locations of the actual subject), which use stock b-roll, which use AI/graphics/text cards; exactly when narration starts relative to the visuals; how the opening hook works; how cut speed changes across the video; on-screen text, captions, and music.

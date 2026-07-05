@@ -12,6 +12,7 @@ import { usePopIn } from "./anim";
 import { idbSet, idbGet, idbDel, idbDelPrefix } from "./store";
 import ThumbLab from "./thumblab";
 import { recordEvent, lessonsNote, reflect } from "./memory";
+import { cloudGet as ls, cloudSet as ss } from "./cloud.js";
 
 const STEPS = ["Script", "Storyboard", "Visuals", "Voiceover", "Render", "Thumbnail", "SEO Package"];
 const STYLES = [
@@ -19,8 +20,6 @@ const STYLES = [
   { id: "realasset", n: "Real Assets", d: "Coverr + Pixabay clips/photos, Pexels fallback" },
   { id: "doodle", n: "Stickman Doodle", d: "Hand-drawn frames, hard cuts, no zoom" },
 ];
-const ls = (k, fb) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : fb; } catch { return fb; } };
-const ss = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} };
 
 export default function Studio({ niche, ctx, clKey, gemKey, gathosKey, gathosVidKey, groqKey, pexKey, pixKey, covKey, ai33Key, ai33Base, back, addH, updateH }) {
   const vidKey = gathosVidKey || gathosKey; // legacy img_live_* keys also work for video

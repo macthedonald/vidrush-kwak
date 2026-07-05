@@ -3,6 +3,7 @@ import { SeoView } from "./seoview.jsx";
 import { AI33_DEFAULT_BASE } from "./ai33";
 import { useReveal, Counter } from "./anim.jsx";
 import { claude } from "./pipeline";
+import { cloudGet, cloudSet, cloudRemove } from "./cloud.js";
 
 // Heavy pages are code-split — the dashboard shell stays fast.
 const Studio = lazy(() => import("./studio.jsx"));
@@ -29,18 +30,10 @@ const YT = "https://www.googleapis.com/youtube/v3";
 const ai = (system, user, key) => claude(system, user, key);
 
 
-function ls(k, fb) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : fb; } catch { return fb; } }
-function ss(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch(e) { if (e.name === 'QuotaExceededError') { console.warn('localStorage full, cleaning thumbs...'); cleanThumbs(k); try { localStorage.setItem(k, JSON.stringify(v)); } catch {} } } }
-function cleanThumbs(k) {
-  try {
-    const raw = localStorage.getItem(k); if (!raw) return;
-    const data = JSON.parse(raw);
-    if (Array.isArray(data)) {
-      const cleaned = data.map(n => ({ ...n, history: (n.history||[]).map(h => { const { thumbs, ...rest } = h; return rest; }) }));
-      localStorage.setItem(k, JSON.stringify(cleaned));
-    }
-  } catch {}
-}
+// Per-user cloud store (Convex when signed in, localStorage otherwise). Same (key, fallback)
+// / (key, value) shape as the old ls/ss, so every call site is unchanged.
+const ls = (k, fb) => cloudGet(k, fb);
+const ss = (k, v) => cloudSet(k, v);
 
 async function ytApi(ep, params, key) {
   const r = await fetch(`${YT}/${ep}?${new URLSearchParams({ ...params, key })}`);
@@ -134,7 +127,7 @@ export default function App() {
   const [ok, setOk] = useState(false);
   const [sb, setSb] = useState(true);
 
-  useEffect(() => { cleanThumbs("vr6-niches"); setNiches(ls("vr6-niches", ls("vr5-niches",[]))); setYtKey(ls("vr6-yt", ls("vr5-yt",""))); setClKey(ls("vr6-cl", ls("vr5-cl",""))); setGemKey(ls("vr6-gem","")); setPexKey(ls("vr7-pex","")); setPixKey(ls("vr7-pix","")); setCovKey(ls("vr7-cov","")); setAi33Key(ls("vr7-a33","")); setGathosKey(ls("vr8-gat","")); setGathosVidKey(ls("vr8-gatv","")); setGroqKey(ls("vr8-groq","")); const a33b=ls("vr7-a33b",AI33_DEFAULT_BASE); setAi33Base(a33b==="https://ai33.pro/api"?AI33_DEFAULT_BASE:a33b); setOk(true); }, []);
+  useEffect(() => { setNiches(ls("vr6-niches", ls("vr5-niches",[]))); setYtKey(ls("vr6-yt", ls("vr5-yt",""))); setClKey(ls("vr6-cl", ls("vr5-cl",""))); setGemKey(ls("vr6-gem","")); setPexKey(ls("vr7-pex","")); setPixKey(ls("vr7-pix","")); setCovKey(ls("vr7-cov","")); setAi33Key(ls("vr7-a33","")); setGathosKey(ls("vr8-gat","")); setGathosVidKey(ls("vr8-gatv","")); setGroqKey(ls("vr8-groq","")); const a33b=ls("vr7-a33b",AI33_DEFAULT_BASE); setAi33Base(a33b==="https://ai33.pro/api"?AI33_DEFAULT_BASE:a33b); setOk(true); }, []);
   const sn = n => { setNiches(n); ss("vr6-niches",n); };
   const openNiche = (n) => {
     // Always read fresh from localStorage to avoid stale closures
@@ -326,7 +319,9 @@ function SettingsPg({ keys, setKeys, niches }) {
               const r=new FileReader();
               r.onload=ev=>{ try{ const j=JSON.parse(ev.target.result); if(j.app!=="vidrush"||!j.data) throw new Error("not a VidRush backup");
                 if(!confirm("Import this backup? It merges with (and can overwrite) your current data.")) return;
-                Object.entries(j.data).forEach(([key,v])=>localStorage.setItem(key,v)); location.reload();
+                // Route through the cloud store so it also syncs when signed in; delay reload past the debounce.
+                Object.entries(j.data).forEach(([key,val])=>{ let parsed=val; try{ parsed=JSON.parse(val); }catch{} cloudSet(key,parsed); });
+                setTimeout(()=>location.reload(), 1200);
               }catch(err){ alert("Import failed: "+err.message); } };
               r.readAsText(f); e.target.value="";
             }}/>
@@ -341,8 +336,8 @@ function SettingsPg({ keys, setKeys, niches }) {
         </div>
       </div>
       {(niches||[]).map(n=>{
-        const lessons = localStorage.getItem(`vr8-lessons-${n.id}`)||"";
-        const evCount = (()=>{try{return JSON.parse(localStorage.getItem(`vr8-mem-${n.id}`)||"[]").length;}catch{return 0;}})();
+        const lessons = cloudGet(`vr8-lessons-${n.id}`, "")||"";
+        const evCount = (cloudGet(`vr8-mem-${n.id}`, [])||[]).length;
         if(!lessons&&!evCount) return null;
         return <div className="nv-set-row" key={n.id}>
           <div className="nv-set-info">
@@ -352,10 +347,10 @@ function SettingsPg({ keys, setKeys, niches }) {
           </div>
           <div className="yt-btn-row">
             {memOpen===n.id
-              ? <><button className="yt-btn" onClick={()=>{memText.trim()?localStorage.setItem(`vr8-lessons-${n.id}`,memText):localStorage.removeItem(`vr8-lessons-${n.id}`);setMemOpen(null);}}>Save</button>
+              ? <><button className="yt-btn" onClick={()=>{memText.trim()?cloudSet(`vr8-lessons-${n.id}`,memText):cloudRemove(`vr8-lessons-${n.id}`);setMemOpen(null);}}>Save</button>
                  <button className="yt-btn-o" onClick={()=>setMemOpen(null)}>Close</button></>
               : <><button className="yt-btn-o" onClick={()=>{setMemOpen(n.id);setMemText(lessons);}}>{lessons?"View / edit":"View"}</button>
-                 <button className="yt-btn-o" onClick={()=>{if(confirm(`Wipe everything learned for "${n.name}"?`)){localStorage.removeItem(`vr8-lessons-${n.id}`);localStorage.removeItem(`vr8-mem-${n.id}`);setMemOpen(x=>x);setMemText("");setMemOpen(null);}}}>Wipe</button></>}
+                 <button className="yt-btn-o" onClick={()=>{if(confirm(`Wipe everything learned for "${n.name}"?`)){cloudRemove(`vr8-lessons-${n.id}`);cloudRemove(`vr8-mem-${n.id}`);setMemText("");setMemOpen(null);}}}>Wipe</button></>}
           </div>
         </div>;
       })}

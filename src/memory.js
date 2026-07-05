@@ -2,31 +2,36 @@
 // "reflection" distills the log into a compact preferences note that gets injected
 // into future briefs, scripts, storyboards, and SEO prompts. The app gets sharper
 // the more videos you finish.
+//
+// Storage goes through the cloud store, so when signed into Convex the memory is
+// per-user and sticky across devices; otherwise it lives in localStorage.
 import { claude } from "./pipeline";
+import { cloudGet, cloudSet, cloudRemove } from "./cloud.js";
 
 const EV_KEY = id => `vr8-mem-${id}`;
 const LS_KEY = id => `vr8-lessons-${id}`;
+const MARK_KEY = id => `vr8-mem-mark-${id}`;
 
 export function recordEvent(nicheId, type, data = {}) {
-  try {
-    const k = EV_KEY(nicheId);
-    const arr = JSON.parse(localStorage.getItem(k) || "[]");
-    arr.push({ t: Date.now(), type, ...data });
-    while (arr.length > 120) arr.shift();
-    localStorage.setItem(k, JSON.stringify(arr));
-  } catch {}
+  const k = EV_KEY(nicheId);
+  const arr = cloudGet(k, []);
+  const next = Array.isArray(arr) ? arr.slice() : [];
+  next.push({ t: Date.now(), type, ...data });
+  while (next.length > 120) next.shift();
+  cloudSet(k, next);
 }
 export function getEvents(nicheId) {
-  try { return JSON.parse(localStorage.getItem(EV_KEY(nicheId)) || "[]"); } catch { return []; }
+  const v = cloudGet(EV_KEY(nicheId), []);
+  return Array.isArray(v) ? v : [];
 }
 export function getLessons(nicheId) {
-  try { return localStorage.getItem(LS_KEY(nicheId)) || ""; } catch { return ""; }
+  return cloudGet(LS_KEY(nicheId), "") || "";
 }
 export function setLessons(nicheId, txt) {
-  try { txt ? localStorage.setItem(LS_KEY(nicheId), txt) : localStorage.removeItem(LS_KEY(nicheId)); } catch {}
+  if (txt) cloudSet(LS_KEY(nicheId), txt); else cloudRemove(LS_KEY(nicheId));
 }
 export function clearMemory(nicheId) {
-  try { localStorage.removeItem(EV_KEY(nicheId)); localStorage.removeItem(LS_KEY(nicheId)); } catch {}
+  cloudRemove(EV_KEY(nicheId)); cloudRemove(LS_KEY(nicheId)); cloudRemove(MARK_KEY(nicheId));
 }
 
 // Prompt fragment injected into generation calls.
@@ -44,7 +49,7 @@ let lastReflect = 0;
 export async function reflect(nicheId, clKey) {
   if (!clKey || Date.now() - lastReflect < 180000) return;
   const evs = getEvents(nicheId);
-  const since = +localStorage.getItem(`vr8-mem-mark-${nicheId}`) || 0;
+  const since = +cloudGet(MARK_KEY(nicheId), 0) || 0;
   const fresh = evs.filter(e => e.t > since);
   if (fresh.length < 4) return;
   lastReflect = Date.now();
@@ -54,7 +59,7 @@ export async function reflect(nicheId, clKey) {
     const out = await claude(SYS_REFLECT, `PREVIOUS MEMORY:\n${prev || "(none yet)"}\n\nRECENT ACTIVITY LOG (newest last):\n${log}`, clKey);
     if (out.trim()) {
       setLessons(nicheId, out.trim().slice(0, 4000));
-      localStorage.setItem(`vr8-mem-mark-${nicheId}`, String(Date.now()));
+      cloudSet(MARK_KEY(nicheId), Date.now());
     }
   } catch (e) { console.warn("reflect:", e.message); }
 }

@@ -72,6 +72,23 @@ npm run dev     # local dev server
 npm run build   # production build in dist/
 ```
 
+## Accounts & cloud sync (Convex + Clerk)
+
+By default the app runs **local-only** — everything in `localStorage`/IndexedDB, no sign-in, zero setup. Add two env vars to turn on **per-user accounts and cross-device sync**: your niches, topics, video templates, API keys, and the **learning memory** all live in Convex, keyed to your Clerk user, so they follow you to any device and never disappear.
+
+Media binaries (rendered videos, generated frames) stay in the browser's IndexedDB by design; their metadata syncs.
+
+### Setup (once)
+
+1. **Convex** — `npm i -g convex` then, in the repo, `npx convex dev`. It logs you in, creates a deployment, deploys `convex/` (the `kv` table + functions), and writes `VITE_CONVEX_URL` into `.env.local`.
+2. **Clerk** — create an app at clerk.com. In **JWT Templates**, add a template named exactly `convex`. Copy the **Publishable key** into `.env.local` as `VITE_CLERK_PUBLISHABLE_KEY`.
+3. **Link them** — in the **Convex dashboard → Settings → Environment Variables**, set `CLERK_JWT_ISSUER_DOMAIN` to your Clerk **Frontend API URL** (e.g. `https://your-app.clerk.accounts.dev`). This is what `convex/auth.config.js` validates.
+4. Restart `npm run dev`. You'll get a sign-in screen; after signing in, your workspace syncs.
+
+On Vercel, set the same `VITE_CONVEX_URL` and `VITE_CLERK_PUBLISHABLE_KEY` in the project's Environment Variables, and run `npx convex deploy` for the production Convex deployment.
+
+**Migration:** the first time you sign in, any work already in your browser (from local-only mode) is imported into your account automatically.
+
 ## Deploy to Vercel
 
 The app is a static Vite SPA — Vercel builds it with zero config beyond the included `vercel.json`.
