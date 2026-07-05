@@ -3,6 +3,8 @@
 // poll GET /v1/task/{task_id} until status "done", then fetch metadata.audio_url.
 // v3 voice_ids are provider-prefixed: elevenlabs_ / minimax_ / fishaudio_ / clone_ / edge_ / kokoro_ / vbee_.
 
+import { pfetch } from "./net.js";
+
 export const AI33_DEFAULT_BASE = "https://api.ai33.pro";
 
 // All 30 Gemini prebuilt TTS voices.
@@ -48,7 +50,7 @@ const base = b => (b || AI33_DEFAULT_BASE).replace(/\/$/, "");
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 async function jfetch(url, opts) {
-  const r = await fetch(url, opts);
+  const r = await pfetch(url, opts);
   let d = null;
   try { d = await r.json(); } catch {}
   if (!r.ok) throw new Error(d?.error_message || d?.message || d?.error || `AI33 HTTP ${r.status}`);
@@ -115,7 +117,7 @@ export async function ai33TTS(b, key, { voiceId, text, speed = 1, onProgress, tr
   const meta = await ai33PollTask(b, key, d.task_id, { onProgress });
   const url = meta.audio_url || meta.url || meta.output_url;
   if (!url) throw new Error("AI33 TTS finished but no audio_url in task metadata");
-  const ar = await fetch(url);
+  const ar = await pfetch(url);
   if (!ar.ok) throw new Error(`AI33 audio fetch ${ar.status}`);
   return { arrayBuffer: await ar.arrayBuffer(), words: transcript ? parseTranscriptWords(meta) : null };
 }
@@ -149,7 +151,7 @@ export async function ai33Suno(b, key, { prompt, instrumental = true, onProgress
   const meta = await ai33PollTask(b, key, d.task_id, { intervalMs: 6000, timeoutMs: 600000, onProgress });
   const url = meta.audio_url || meta.all_audio_urls?.[0] || meta.suno_result?.clips?.[0]?.audio_url;
   if (!url) throw new Error("Suno finished but no audio_url in task metadata");
-  const ar = await fetch(url);
+  const ar = await pfetch(url);
   if (!ar.ok) throw new Error(`Suno audio fetch ${ar.status}`);
   return { arrayBuffer: await ar.arrayBuffer(), title: meta.title || meta.suno_result?.clips?.[0]?.title || "Suno track" };
 }

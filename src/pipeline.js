@@ -3,6 +3,7 @@
 // real-asset-video-factory (real b-roll, Ken Burns, karaoke subs, attribution),
 // stickman-doodle-factory (doodle frames, hard cuts), youtube-video-factory (autopilot).
 import * as lame from "@breezystack/lamejs";
+import { pfetch } from "./net.js";
 
 const Mp3Encoder = lame.Mp3Encoder || lame.default?.Mp3Encoder;
 const ANTHROPIC = "https://api.anthropic.com/v1/messages";
@@ -59,7 +60,7 @@ export async function claudeVision(system, userText, imageSource, key, { maxToke
     block = { type: "image", source: { type: "base64", media_type: imageSource.mime, data: imageSource.data } };
   } else {
     try {
-      const resp = await fetch(imageSource);
+      const resp = await pfetch(imageSource);
       const blob = await resp.blob();
       const b64 = await new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result.split(",")[1]); r.onerror = rej; r.readAsDataURL(blob); });
       block = { type: "image", source: { type: "base64", media_type: blob.type || "image/jpeg", data: b64 } };
@@ -386,13 +387,13 @@ export function pcmToMp3(pcm, rate, kbps = 128) {
 
 // ---------- Real-asset sourcing: Coverr + Pixabay primary, Pexels fallback ----------
 export async function pexelsPhotos(query, key, perPage = 6) {
-  const r = await fetch(`https://api.pexels.com/v1/search?query=${encodeURIComponent(query)}&per_page=${perPage}&orientation=landscape`, { headers: { Authorization: key } });
+  const r = await pfetch(`https://api.pexels.com/v1/search?query=${encodeURIComponent(query)}&per_page=${perPage}&orientation=landscape`, { headers: { Authorization: key } });
   if (!r.ok) throw new Error(`Pexels ${r.status}`);
   const d = await r.json();
   return (d.photos || []).map(p => ({ kind: "photo", src: p.src.large2x || p.src.large, thumb: p.src.medium, credit: `Photo by ${p.photographer} on Pexels`, url: p.url, source: "Pexels" }));
 }
 export async function pexelsVideos(query, key, perPage = 5) {
-  const r = await fetch(`https://api.pexels.com/videos/search?query=${encodeURIComponent(query)}&per_page=${perPage}&orientation=landscape`, { headers: { Authorization: key } });
+  const r = await pfetch(`https://api.pexels.com/videos/search?query=${encodeURIComponent(query)}&per_page=${perPage}&orientation=landscape`, { headers: { Authorization: key } });
   if (!r.ok) throw new Error(`Pexels ${r.status}`);
   const d = await r.json();
   return (d.videos || []).map(v => {
@@ -402,13 +403,13 @@ export async function pexelsVideos(query, key, perPage = 5) {
   }).filter(Boolean);
 }
 export async function coverrVideos(query, key, pageSize = 6) {
-  const r = await fetch(`https://api.coverr.co/videos?urls=true&page_size=${pageSize}&query=${encodeURIComponent(query)}`, { headers: { Authorization: `Bearer ${key}` } });
+  const r = await pfetch(`https://api.coverr.co/videos?urls=true&page_size=${pageSize}&query=${encodeURIComponent(query)}`, { headers: { Authorization: `Bearer ${key}` } });
   if (!r.ok) throw new Error(`Coverr ${r.status}`);
   const d = await r.json();
   return (d.hits || []).map(v => ({ kind: "video", src: v.urls?.mp4_preview || v.urls?.mp4, thumb: v.thumbnail || v.poster, credit: `Video from Coverr (${v.title || v.id})`, url: `https://coverr.co/videos/${v.id}`, source: "Coverr" })).filter(v => v.src);
 }
 export async function pixabayVideos(query, key, perPage = 5) {
-  const r = await fetch(`https://pixabay.com/api/videos/?key=${key}&q=${encodeURIComponent(query)}&per_page=${perPage}&safesearch=true`);
+  const r = await pfetch(`https://pixabay.com/api/videos/?key=${key}&q=${encodeURIComponent(query)}&per_page=${perPage}&safesearch=true`);
   if (!r.ok) throw new Error(`Pixabay ${r.status}`);
   const d = await r.json();
   return (d.hits || []).map(v => {
@@ -417,7 +418,7 @@ export async function pixabayVideos(query, key, perPage = 5) {
   }).filter(Boolean);
 }
 export async function pixabayPhotos(query, key, perPage = 6) {
-  const r = await fetch(`https://pixabay.com/api/?key=${key}&q=${encodeURIComponent(query)}&image_type=photo&orientation=horizontal&per_page=${perPage}&safesearch=true`);
+  const r = await pfetch(`https://pixabay.com/api/?key=${key}&q=${encodeURIComponent(query)}&image_type=photo&orientation=horizontal&per_page=${perPage}&safesearch=true`);
   if (!r.ok) throw new Error(`Pixabay ${r.status}`);
   const d = await r.json();
   return (d.hits || []).map(p => ({ kind: "photo", src: p.largeImageURL, thumb: p.webformatURL, credit: `Photo by ${p.user} on Pixabay`, url: p.pageURL, source: "Pixabay" }));
@@ -437,13 +438,13 @@ export async function sourceRealAsset(query, keys) {
   return null;
 }
 export async function urlToBlobUrl(url) {
-  const resp = await fetch(url);
+  const resp = await pfetch(url);
   if (!resp.ok) throw new Error(`Asset fetch ${resp.status}`);
   return URL.createObjectURL(await resp.blob());
 }
 
 export async function urlToDataURL(url) {
-  const resp = await fetch(url);
+  const resp = await pfetch(url);
   const blob = await resp.blob();
   return new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(blob); });
 }

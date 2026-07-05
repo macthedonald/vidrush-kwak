@@ -1,5 +1,6 @@
 // Gathos API (https://gathos.com/api/v1) — all image and video generation runs here.
 // Async job model: submit → poll → retrieve. Images return base64; video returns a time-limited URL.
+import { pfetch } from "./net.js";
 const BASE = "https://gathos.com/api/v1";
 
 const hdrs = key => ({ Authorization: `Bearer ${key}` });
@@ -31,7 +32,7 @@ export const snapLtxFrames = (rawFrames) => {
 // Generate one image → data URL. Retries once on 429 using the server's suggested delay.
 export async function gathosImage(prompt, key, { aspect = "16:9", enhance = false, onStatus } = {}) {
   const { width, height } = IMG_SIZE[aspect] || IMG_SIZE["16:9"];
-  const submit = async () => gjson(await fetch(`${BASE}/image-generation`, {
+  const submit = async () => gjson(await pfetch(`${BASE}/image-generation`, {
     method: "POST",
     headers: { ...hdrs(key), "Content-Type": "application/json" },
     body: JSON.stringify({ prompt: prompt.slice(0, 2000), width, height, use_prompt_enhancer: enhance, steps: 8 }),
@@ -45,7 +46,7 @@ export async function gathosImage(prompt, key, { aspect = "16:9", enhance = fals
   const deadline = Date.now() + 300000;
   while (Date.now() < deadline) {
     await sleep(3000);
-    const d = await gjson(await fetch(`${BASE}/image-generation/jobs/${job.job_id}`, { headers: hdrs(key) }));
+    const d = await gjson(await pfetch(`${BASE}/image-generation/jobs/${job.job_id}`, { headers: hdrs(key) }));
     if (onStatus && d.eta_seconds != null) onStatus(`~${Math.round(d.eta_seconds)}s`);
     if (d.status === "completed") return `data:${d.result.content_type || "image/png"};base64,${d.result.image_base64}`;
     if (d.status === "failed") throw new Error(d.error || "Gathos image job failed");
@@ -74,9 +75,9 @@ export async function gathosVideo(prompt, key, { aspect = "16:9", durationSec = 
     if (style) fd.append("style", style);
     fd.append("generate_audio", "false");
     fd.append("prevent_text", "true");
-    resp = await fetch(`${BASE}/video-generation`, { method: "POST", headers: hdrs(key), body: fd });
+    resp = await pfetch(`${BASE}/video-generation`, { method: "POST", headers: hdrs(key), body: fd });
   } else {
-    resp = await fetch(`${BASE}/video-generation`, {
+    resp = await pfetch(`${BASE}/video-generation`, {
       method: "POST",
       headers: { ...hdrs(key), "Content-Type": "application/json" },
       body: JSON.stringify({ prompt: prompt.slice(0, 2000), mode: "t2av", width, height, num_frames, fps, style: style || null, generate_audio: false, prevent_text: true }),
@@ -95,10 +96,10 @@ export async function gathosVideo(prompt, key, { aspect = "16:9", durationSec = 
   while (Date.now() < deadline) {
     if (isCancelled?.()) throw new Error("Cancelled");
     await sleep(7000);
-    const d = await gjson(await fetch(`${BASE}/video-generation/jobs/${job.job_id}`, { headers: hdrs(key) }));
+    const d = await gjson(await pfetch(`${BASE}/video-generation/jobs/${job.job_id}`, { headers: hdrs(key) }));
     if (onStatus) onStatus(d.status);
     if (d.status === "done" && d.video_url) {
-      const vr = await fetch(d.video_url);
+      const vr = await pfetch(d.video_url);
       if (!vr.ok) throw new Error(`Gathos video download ${vr.status}`);
       return vr.blob();
     }
@@ -111,6 +112,6 @@ export async function gathosVideo(prompt, key, { aspect = "16:9", durationSec = 
 export const GATHOS_STYLE = { cinematic: "Cinematic", realasset: "Cinematic", doodle: "Stickman" };
 
 export async function gathosVideoStyles(key) {
-  const d = await gjson(await fetch(`${BASE}/video-generation/styles`, { headers: hdrs(key) }));
+  const d = await gjson(await pfetch(`${BASE}/video-generation/styles`, { headers: hdrs(key) }));
   return d.styles || [];
 }
