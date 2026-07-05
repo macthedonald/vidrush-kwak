@@ -1,10 +1,11 @@
 import { useState, useEffect, useRef } from "react";
 import {
   claude, parseJson, SYS_BRIEF, SYS_SCRIPT, SYS_STORYBOARD, SYS_SEO, STYLE_WRAP,
-  geminiImage, geminiTTS, concatPcm, pcmToWav, pcmToMp3,
+  geminiTTS, groqTranscribe, concatPcm, pcmToWav, pcmToMp3,
   coverrVideos, pixabayVideos, pixabayPhotos, pexelsVideos, pexelsPhotos, sourceRealAsset, urlToDataURL,
   makeZip, fmtTime, estDuration, renderVideo, renderVideoFast, canRenderFast, chunkScript, loadImage, loadVideoEl, pickMime,
 } from "./pipeline";
+import { gathosImage, gathosVideo, GATHOS_STYLE } from "./gathos";
 import { GEMINI_VOICES, ELEVENLABS_VOICES, MINIMAX_VOICES, ai33ListVoices, ai33TTS, ai33Clone, ai33DeleteClone, ai33Suno, decodeAudioBuffer, decodeToPcm24k, AI33_DEFAULT_BASE } from "./ai33";
 import { SeoView } from "./seoview";
 import { usePopIn } from "./anim";
@@ -20,7 +21,8 @@ const STYLES = [
 const ls = (k, fb) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : fb; } catch { return fb; } };
 const ss = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} };
 
-export default function Studio({ niche, ctx, clKey, gemKey, pexKey, pixKey, covKey, ai33Key, ai33Base, back, addH, updateH }) {
+export default function Studio({ niche, ctx, clKey, gemKey, gathosKey, gathosVidKey, groqKey, pexKey, pixKey, covKey, ai33Key, ai33Base, back, addH, updateH }) {
+  const vidKey = gathosVidKey || gathosKey; // legacy img_live_* keys also work for video
   const storeKey = `vr7-studio-${niche.id}-${ctx.histId || ctx.topic}`;
   const mk = k => `${storeKey}:${k}`;
   const [step, setStep] = useState(0);
@@ -142,15 +144,19 @@ export default function Studio({ niche, ctx, clKey, gemKey, pexKey, pixKey, covK
       const segDur = seg?.pcm ? seg.pcm.length / seg.rate : inScenes.reduce((x, s) => x + estDuration(s.narration), 0);
       const secStart = t;
       if (seg?.pcm) segsOut.push({ pcm: seg.pcm, rate: seg.rate, start: t });
-      let wi = 0;
+      // Whisper's word count can differ slightly from the narration text — slice proportionally.
+      let cumBefore = 0;
       inScenes.forEach((s, k) => {
         const d = segDur * wcs[k] / totW;
         let wordTimes = null;
         if (seg?.words?.length) {
-          const slice = seg.words.slice(wi, wi + wcs[k]);
-          if (slice.length === wcs[k]) wordTimes = slice.map(w => ({ start: secStart + w.start, end: secStart + w.end }));
+          const W = seg.words.length;
+          const a = Math.round(W * cumBefore / totW);
+          const b = Math.round(W * (cumBefore + wcs[k]) / totW);
+          const slice = seg.words.slice(a, Math.max(b, a + 1));
+          if (slice.length) wordTimes = slice.map(w => ({ start: secStart + w.start, end: secStart + w.end }));
         }
-        wi += wcs[k];
+        cumBefore += wcs[k];
         shots.push({ ...s, section: sec.name, start: t, duration: d, wordTimes });
         t += d;
       });
@@ -222,16 +228,50 @@ export default function Studio({ niche, ctx, clKey, gemKey, pexKey, pixKey, covK
     } catch (e) { setSt("⚠ " + e.message); setBusy(""); return []; }
   };
 
-  // ---- Stage 3: Visuals ----
+  // ---- Stage 3: Visuals (Gathos) ----
   const genImage = async (i, list) => {
     const s = (list || scenes)[i];
-    if (!gemKey) { setScene(i, { imgErr: "No Gemini key" }); return; }
+    if (!gathosKey) { setScene(i, { imgErr: "No Gathos key" }); return; }
     setScene(i, { imgErr: null, imgLoading: true });
     try {
-      const url = await geminiImage(STYLE_WRAP[style](s.visual), gemKey, { aspect: format });
+      const url = await gathosImage(STYLE_WRAP[style](s.visual), gathosKey, { aspect: format });
       setScene(i, { img: url, video: null, imgLoading: false, credit: null });
       idbSet(mk(`img:${i}`), url); idbDel(mk(`vid:${i}`));
     } catch (e) { setScene(i, { imgErr: e.message, imgLoading: false }); }
+  };
+  // AI-generated video clip for one shot: animates the existing frame (ti2av) or goes text-to-video.
+  const genClip = async (i, list) => {
+    const s = (list || scenes)[i];
+    if (!vidKey) { setScene(i, { imgErr: "No Gathos video key" }); return; }
+    setScene(i, { imgErr: null, imgLoading: true });
+    try {
+      const dur = Math.max(3, Math.min(8, estDuration(s.narration)));
+      const prompt = s.img
+        ? `Animate this frame with subtle natural motion and a slow cinematic camera move: ${s.visual}`
+        : `${STYLE_WRAP[style](s.visual)} Slow cinematic camera movement, natural motion.`;
+      const blob = await gathosVideo(prompt, vidKey, {
+        aspect: format, durationSec: dur, style: GATHOS_STYLE[style] || null,
+        imageDataUrl: s.img || null,
+        onStatus: st2 => setSt(`Shot #${i + 1} clip: ${st2}...`),
+        isCancelled: () => cancelRef.current,
+      });
+      setScene(i, { video: { blobUrl: URL.createObjectURL(blob), thumb: s.img || null }, imgLoading: false });
+      idbSet(mk(`vid:${i}`), { blob, thumb: s.img || null, credit: null });
+      setSt(`✅ Shot #${i + 1} clip ready`);
+    } catch (e) { setScene(i, { imgErr: e.message, imgLoading: false }); }
+  };
+  const genAllClips = async () => {
+    if (!vidKey) { setSt("⚠ Add a Gathos key in Settings"); return; }
+    const targets = scenes.map((s, i) => i).filter(i => !scenes[i].video);
+    if (!targets.length) { setSt("All shots already have clips"); return; }
+    if (!confirm(`Generate AI clips for ${targets.length} shot(s)? Each clip takes ~1-2 minutes on Gathos (2 run at a time).`)) return;
+    cancelRef.current = false; setBusy("clips");
+    for (let b = 0; b < targets.length; b += 2) {
+      if (cancelRef.current) break;
+      setSt(`Generating clips ${b + 1}-${Math.min(b + 2, targets.length)} of ${targets.length}...`);
+      await Promise.all(targets.slice(b, b + 2).map(i => genClip(i)));
+    }
+    setSt(cancelRef.current ? "Clip generation stopped" : "✅ Clips ready"); setBusy("");
   };
   const sourceScene = async (i, list) => {
     const s = (list || scenes)[i];
@@ -290,16 +330,22 @@ export default function Studio({ niche, ctx, clKey, gemKey, pexKey, pixKey, covK
     } catch (e) { setSrcPick(p => p && { ...p, results: [], loading: false, err: e.message }); }
   };
 
-  // ---- Stage 4: Voiceover (per section; word timestamps kept when available) ----
+  // ---- Stage 4: Voiceover (per section; Groq Whisper supplies word timestamps for any voice) ----
   const speak = async (text) => {
+    let pcm, rate, words = null;
     if (voiceSel.provider === "gemini") {
       if (!gemKey) throw new Error("Set Gemini API key for Gemini voices");
-      const { pcm, rate } = await geminiTTS(text, voiceSel.id, gemKey);
-      return { pcm, rate, words: null };
+      ({ pcm, rate } = await geminiTTS(text, voiceSel.id, gemKey));
+    } else {
+      if (!ai33Key) throw new Error("Set AI33 API key for ElevenLabs / MiniMax / Fish / cloned voices");
+      const res2 = await ai33TTS(ai33Base || AI33_DEFAULT_BASE, ai33Key, { voiceId: voiceSel.id, text, transcript: !groqKey });
+      ({ pcm, rate } = await decodeToPcm24k(res2.arrayBuffer));
+      words = res2.words;
     }
-    if (!ai33Key) throw new Error("Set AI33 API key for ElevenLabs / MiniMax / Fish / cloned voices");
-    const { arrayBuffer, words } = await ai33TTS(ai33Base || AI33_DEFAULT_BASE, ai33Key, { voiceId: voiceSel.id, text, transcript: true });
-    const { pcm, rate } = await decodeToPcm24k(arrayBuffer);
+    if (groqKey) {
+      try { words = await groqTranscribe(pcmToWav(pcm, rate), groqKey) || words; }
+      catch (e) { console.warn("Groq transcription failed:", e.message); }
+    }
     return { pcm, rate, words };
   };
   const ttsSection = async (si, list) => {
@@ -561,11 +607,15 @@ export default function Studio({ niche, ctx, clKey, gemKey, pexKey, pixKey, covK
     {/* STEP 3 — VISUALS */}
     {step === 2 && <div className="yt-card">
       <div className="yt-card-h"><span className="yt-card-ht">Visuals — {mediaReady}/{scenes.length} shots{vertical ? " · vertical" : ""}</span>
-        <button className={`yt-btn ${busy === "images" ? "yt-btn-ld" : ""}`} onClick={() => genAllVisuals()} disabled={disabled || !scenes.length}>{busy === "images" ? "Working…" : style === "realasset" ? "Auto-source all" : "Generate all frames"}</button>
+        <div className="yt-btn-row">
+          {vidKey && style !== "realasset" && <button className={`yt-btn-o ${busy === "clips" ? "yt-btn-ld" : ""}`} onClick={busy === "clips" ? () => { cancelRef.current = true; } : genAllClips} disabled={busy && busy !== "clips" || !scenes.length}>{busy === "clips" ? "Stop clips" : "Animate all (AI clips)"}</button>}
+          <button className={`yt-btn ${busy === "images" ? "yt-btn-ld" : ""}`} onClick={() => genAllVisuals()} disabled={disabled || !scenes.length}>{busy === "images" ? "Working…" : style === "realasset" ? "Auto-source all" : "Generate all frames"}</button>
+        </div>
       </div>
       {style === "realasset"
         ? <p className="yt-hint">Sourcing order: <b>Coverr</b> video → <b>Pixabay</b> video/photo → <b>Pexels</b> fallback. {!covKey && !pixKey && !pexKey ? "⚠ Add at least one of those keys in Settings." : ""} Real clips play inside the final render; credits are collected into your SEO package.</p>
-        : !gemKey ? <p className="yt-hint">⚠ Add a Gemini API key in Settings to generate frames.</p> : null}
+        : !gathosKey ? <p className="yt-hint">⚠ Add a Gathos API key in Settings to generate frames and clips.</p>
+        : <p className="yt-hint">Frames render on Gathos (~15s each). "AI clip" animates a shot into real motion (~1-2 min each) — generate the frame first for the best result, or go straight to clip.</p>}
       <div className="vs-frames">{scenes.map((s, i) => <div key={i} className="vs-frame">
         <div className={`vs-frame-img ${vertical ? "vert" : ""}`}>
           {s.imgLoading && <div className="yt-thumb-loader"><div className="yt-spin"/></div>}
@@ -580,7 +630,8 @@ export default function Studio({ niche, ctx, clKey, gemKey, pexKey, pixKey, covK
         <div className="vs-frame-btns">
           {style === "realasset" && <button className="yt-btn-remake" onClick={() => sourceScene(i)} disabled={s.imgLoading}>Auto</button>}
           {(covKey || pixKey || pexKey) && <button className="yt-btn-remake" onClick={() => openSourcePicker(i)} disabled={s.imgLoading}>Pick</button>}
-          <button className="yt-btn-remake" onClick={() => genImage(i)} disabled={s.imgLoading}>{style === "realasset" ? "AI frame" : s.img ? "Redo" : "Generate"}</button>
+          <button className="yt-btn-remake" onClick={() => genImage(i)} disabled={s.imgLoading}>{s.img ? "Redo frame" : "AI frame"}</button>
+          {vidKey && <button className="yt-btn-remake" onClick={() => genClip(i)} disabled={s.imgLoading} title={s.img ? "Animate this frame into a clip" : "Text-to-video clip"}>{s.video ? "Redo clip" : "AI clip"}</button>}
         </div>
       </div>)}</div>
       {srcPick && <div className="vs-pex-modal" onClick={() => setSrcPick(null)}><div className="vs-pex-box" onClick={e => e.stopPropagation()}>
@@ -610,7 +661,7 @@ export default function Studio({ niche, ctx, clKey, gemKey, pexKey, pixKey, covK
           <button className={`yt-btn ${busy === "tts" ? "yt-btn-ld" : ""}`} onClick={() => ttsAll()} disabled={disabled || !scenes.length}>{busy === "tts" ? "Voicing…" : "Voice all sections"}</button>
         </div>
       </div>
-      <p className="yt-hint">Voiced per script section for natural prosody, then beat-synced across the shots. {voiceSel.provider !== "gemini" ? "AI33 voices return word timestamps — subtitles use exact timing." : "Gemini voices use estimated word timing."}</p>
+      <p className="yt-hint">Voiced per script section for natural prosody, then beat-synced across the shots. {groqKey ? "Groq Whisper transcribes every section — subtitles use exact word timing." : voiceSel.provider !== "gemini" ? "AI33 voices return word timestamps when available. Add a Groq key in Settings for exact timing on every voice." : "Add a Groq key in Settings for exact word-timed subtitles."}</p>
       <div className="vs-vo-list">{sections.map((sec, si) => { const seg = audioSegs[si]; return <div key={si} className="vs-vo-row">
         <span className="vs-scene-num">§{si + 1}</span>
         <span className="vs-vo-text"><b>{sec.name}</b> · {sec.idxs.length} shots — {scenes[sec.idxs[0]]?.narration.slice(0, 60)}…</span>
@@ -669,7 +720,7 @@ export default function Studio({ niche, ctx, clKey, gemKey, pexKey, pixKey, covK
 
     {/* STEP 6 — THUMBNAIL */}
     {step === 5 && <>
-      <ThumbLab topic={ctx.topic} niche={niche} clKey={clKey} gemKey={gemKey} refThumb={ctx.refThumb} format={format}
+      <ThumbLab topic={ctx.topic} niche={niche} clKey={clKey} gathosKey={gathosKey} refThumb={ctx.refThumb} format={format}
         state={thumbState}
         setState={s => { setThumbState(prev => { const next = { ...prev, ...s }; const { thumbs, ...lite } = next; persist({ thumbState: lite }); if (s.thumbs) idbSet(mk("thumbs"), s.thumbs); return next; }); }}/>
       <button className="yt-btn" onClick={() => setStep(6)}>SEO package →</button>

@@ -22,12 +22,12 @@ Clean, quiet interface: light theme, left-sidebar navigation (Home / Niche finde
 **Storyboard Studio** (from any topic, or the play icon next to a sidebar topic)
 1. **Script** — writes the complete word-for-word narration (hook, curiosity loops, retention hooks, CTA), guided by the creative brief. Editable.
 2. **Storyboard** — splits the script verbatim into fast **3–5 second shots** (8–14 words each), every shot with its own visual prompt, b-roll search queries, and optional overlay text. Fully editable, per-shot delete.
-3. **Visuals** — one 16:9 frame or clip per shot, in one of three looks:
-   - **Cinematic AI** — photoreal Gemini frames, Ken Burns motion, fast crossfades
+3. **Visuals** — one frame or clip per shot, generated on **Gathos** (images ~15s each), in one of three looks:
+   - **Cinematic AI** — photoreal frames, Ken Burns motion, fast crossfades — or true **AI video clips** per shot: "AI clip" animates the frame (ti2av) or goes text-to-video (t2av) with Gathos Creator video (~1–2 min/clip, styles mapped: Cinematic / Stickman)
    - **Real Assets** — sourcing cascade: **Coverr video → Pixabay video/photo → Pexels fallback**, with a per-shot picker modal and automatic attribution. Real clips play live inside the final render.
    - **Stickman Doodle** — hand-drawn marker frames, hard cuts, no zoom
 4. **Voiceover** — voiced per script section for natural prosody, then beat-synced across the 3–5s shots by word count. Voice picker modal with **all 30 Gemini TTS voices**, plus **ElevenLabs, MiniMax, and Fish Audio voices via your AI33 account** (live-searchable) — including **voice cloning** (upload a ≤10MB sample, it's cloned on AI33 and appears under My Clones, deletable). Preview any voice before committing. Download the full voiceover as **MP3** or WAV.
-5. **Render** — **WebCodecs fast encoder** (frame-accurate H.264/AAC MP4, faster than realtime, survives background tabs) with automatic fallback to the realtime canvas recorder. **16:9 or 9:16 vertical** — the format selector flows through storyboard prompts, image aspect, canvas size, and subtitle layout. Word-level **karaoke subtitles** use exact word timestamps when an AI33 voice returns a transcript. **Background music**: upload your own track or generate an instrumental with **Suno via AI33** — looped, ducked, auto fade-out.
+5. **Render** — **WebCodecs fast encoder** (frame-accurate H.264/AAC MP4, faster than realtime, survives background tabs) with automatic fallback to the realtime canvas recorder. **16:9 or 9:16 vertical** — the format selector flows through storyboard prompts, image aspect, canvas size, and subtitle layout. Word-level **karaoke subtitles** use exact timestamps from **Groq Whisper** (transcribes every section, any voice provider), falling back to AI33 transcripts or estimation. **Background music**: upload your own track or generate an instrumental with **Suno via AI33** — looped, ducked, auto fade-out.
 6. **Thumbnail** — the thumbnail lab as a Studio step: clone a reference thumbnail's style or write from scratch, refine the prompt conversationally, generate variants matching your video's format.
 7. **SEO Package** — titles, description, tags, pinned comment, **auto-timestamped chapters**, and collected asset credits. Pinned to Home with one-tap copy, downloadable as a `.zip`.
 
@@ -43,7 +43,10 @@ A **creative brief** card sits in the Script step (optional): research-driven an
 |---|---|---|
 | YouTube Data API v3 | competitor scanning, outliers | ideation only |
 | Anthropic | topics, briefs, scripts, storyboards, SEO | yes |
-| Gemini | scene frames, thumbnails, Gemini voices | studio |
+| Gathos (images) | all frame + thumbnail generation | studio |
+| Gathos (video) | AI-generated clips per shot | optional |
+| Groq | Whisper word-timed subtitles | optional |
+| Gemini | built-in Gemini voices | optional |
 | AI33 (api.ai33.pro) | ElevenLabs / MiniMax / Fish Audio voices + cloning | optional |
 | Coverr | real b-roll video (primary source) | optional |
 | Pixabay | real b-roll video/photo (primary source) | optional |

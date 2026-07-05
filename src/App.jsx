@@ -106,6 +106,9 @@ export default function App() {
   const [ytKey, setYtKey] = useState("");
   const [clKey, setClKey] = useState("");
   const [gemKey, setGemKey] = useState("");
+  const [gathosKey, setGathosKey] = useState("");
+  const [gathosVidKey, setGathosVidKey] = useState("");
+  const [groqKey, setGroqKey] = useState("");
   const [pexKey, setPexKey] = useState("");
   const [pixKey, setPixKey] = useState("");
   const [covKey, setCovKey] = useState("");
@@ -116,7 +119,7 @@ export default function App() {
   const [ok, setOk] = useState(false);
   const [sb, setSb] = useState(true);
 
-  useEffect(() => { cleanThumbs("vr6-niches"); setNiches(ls("vr6-niches", ls("vr5-niches",[]))); setYtKey(ls("vr6-yt", ls("vr5-yt",""))); setClKey(ls("vr6-cl", ls("vr5-cl",""))); setGemKey(ls("vr6-gem","")); setPexKey(ls("vr7-pex","")); setPixKey(ls("vr7-pix","")); setCovKey(ls("vr7-cov","")); setAi33Key(ls("vr7-a33","")); const a33b=ls("vr7-a33b",AI33_DEFAULT_BASE); setAi33Base(a33b==="https://ai33.pro/api"?AI33_DEFAULT_BASE:a33b); setOk(true); }, []);
+  useEffect(() => { cleanThumbs("vr6-niches"); setNiches(ls("vr6-niches", ls("vr5-niches",[]))); setYtKey(ls("vr6-yt", ls("vr5-yt",""))); setClKey(ls("vr6-cl", ls("vr5-cl",""))); setGemKey(ls("vr6-gem","")); setPexKey(ls("vr7-pex","")); setPixKey(ls("vr7-pix","")); setCovKey(ls("vr7-cov","")); setAi33Key(ls("vr7-a33","")); setGathosKey(ls("vr8-gat","")); setGathosVidKey(ls("vr8-gatv","")); setGroqKey(ls("vr8-groq","")); const a33b=ls("vr7-a33b",AI33_DEFAULT_BASE); setAi33Base(a33b==="https://ai33.pro/api"?AI33_DEFAULT_BASE:a33b); setOk(true); }, []);
   const sn = n => { setNiches(n); ss("vr6-niches",n); };
   const openNiche = (n) => {
     // Always read fresh from localStorage to avoid stale closures
@@ -228,10 +231,10 @@ export default function App() {
           <svg width="14" height="14" viewBox="0 0 16 16"><path fill="currentColor" d="M5.3 2.3a1 1 0 0 0 0 1.4L9.6 8l-4.3 4.3a1 1 0 1 0 1.4 1.4l5-5a1 1 0 0 0 0-1.4l-5-5a1 1 0 0 0-1.4 0Z"/></svg>
         </button>}
       <main className="yt-main"><ErrorBoundary><Suspense fallback={<PageLoader/>}>
-        {pg===P.HOME && <Home niches={niches} sn={sn} go={n=>{openNiche(n);setPg(P.NICHE);}} goFinder={()=>setPg(P.FINDER)} goSettings={()=>setPg(P.SETTINGS)} keysReady={!!(ytKey&&clKey&&gemKey)} />}
-        {pg===P.SETTINGS && <SettingsPg keys={{ytKey,clKey,gemKey,pexKey,pixKey,covKey,ai33Key,ai33Base}} setKeys={k=>{setYtKey(k.ytKey);ss("vr6-yt",k.ytKey);setClKey(k.clKey);ss("vr6-cl",k.clKey);setGemKey(k.gemKey);ss("vr6-gem",k.gemKey);setPexKey(k.pexKey);ss("vr7-pex",k.pexKey);setPixKey(k.pixKey);ss("vr7-pix",k.pixKey);setCovKey(k.covKey);ss("vr7-cov",k.covKey);setAi33Key(k.ai33Key);ss("vr7-a33",k.ai33Key);setAi33Base(k.ai33Base);ss("vr7-a33b",k.ai33Base);}} />}
+        {pg===P.HOME && <Home niches={niches} sn={sn} go={n=>{openNiche(n);setPg(P.NICHE);}} goFinder={()=>setPg(P.FINDER)} goSettings={()=>setPg(P.SETTINGS)} keysReady={!!(ytKey&&clKey&&gathosKey)} />}
+        {pg===P.SETTINGS && <SettingsPg keys={{ytKey,clKey,gemKey,gathosKey,gathosVidKey,groqKey,pexKey,pixKey,covKey,ai33Key,ai33Base}} setKeys={k=>{setYtKey(k.ytKey);ss("vr6-yt",k.ytKey);setClKey(k.clKey);ss("vr6-cl",k.clKey);setGemKey(k.gemKey);ss("vr6-gem",k.gemKey);setGathosKey(k.gathosKey);ss("vr8-gat",k.gathosKey);setGathosVidKey(k.gathosVidKey);ss("vr8-gatv",k.gathosVidKey);setGroqKey(k.groqKey);ss("vr8-groq",k.groqKey);setPexKey(k.pexKey);ss("vr7-pex",k.pexKey);setPixKey(k.pixKey);ss("vr7-pix",k.pixKey);setCovKey(k.covKey);ss("vr7-cov",k.covKey);setAi33Key(k.ai33Key);ss("vr7-a33",k.ai33Key);setAi33Base(k.ai33Base);ss("vr7-a33b",k.ai33Base);}} />}
         {pg===P.NICHE && niche && <NichePg niche={niches.find(x=>x.id===niche.id)||niche} niches={niches} ytKey={ytKey} clKey={clKey} sn={sn} back={()=>{setNiche(null);setPg(P.HOME);}} gen={(t,v,refThumb)=>openStudio(t,v||1,null,"",refThumb)} />}
-        {pg===P.STUDIO && niche && studioCtx && <Studio niche={niche} ctx={studioCtx} clKey={clKey} gemKey={gemKey} pexKey={pexKey} pixKey={pixKey} covKey={covKey} ai33Key={ai33Key} ai33Base={ai33Base} addH={addH} updateH={updateH} back={()=>setPg(P.NICHE)} />}
+        {pg===P.STUDIO && niche && studioCtx && <Studio niche={niche} ctx={studioCtx} clKey={clKey} gemKey={gemKey} gathosKey={gathosKey} gathosVidKey={gathosVidKey} groqKey={groqKey} pexKey={pexKey} pixKey={pixKey} covKey={covKey} ai33Key={ai33Key} ai33Base={ai33Base} addH={addH} updateH={updateH} back={()=>setPg(P.NICHE)} />}
         {pg===P.FINDER && <NicheFinder ytKey={ytKey} clKey={clKey} niches={niches} sn={sn} goNiche={n=>{openNiche(n);setPg(P.NICHE);}} />}
       </Suspense></ErrorBoundary></main>
     </div>
@@ -261,13 +264,16 @@ function SettingsPg({ keys, setKeys }) {
       <div className="nv-set-group-t">Core</div>
       {row("ytKey","YouTube Data API v3","Competitor scanning, outliers, and the niche finder.","AIza…")}
       {row("clKey","Anthropic","Topic research, scripts, storyboards, and SEO copy.","sk-ant-…")}
-      {row("gemKey","Google Gemini","Scene frames, thumbnails, and the built-in voices.","AIza…")}
+      {row("gathosKey","Gathos — images","All frame and thumbnail generation (img_live_ key).","img_live_…")}
+      {row("gathosVidKey","Gathos — video","AI-generated clips (vid_live_ key). Leave empty to reuse the image key.","vid_live_…")}
+      {row("gemKey","Google Gemini","The built-in Gemini voices.","AIza…")}
     </div>
 
     <div className="nv-set-group">
       <div className="nv-set-group-t">Voice & music</div>
       {row("ai33Key","AI33","ElevenLabs, MiniMax and Fish Audio voices, voice cloning, and Suno music.","xi-api-key…")}
       {row("ai33Base","AI33 base URL","Only change this if your AI33 dashboard says so.","https://api.ai33.pro","text")}
+      {row("groqKey","Groq","Whisper transcription — exact word-timed subtitles for every voice.","gsk_…")}
     </div>
 
     <div className="nv-set-group">
@@ -327,7 +333,7 @@ function Home({ niches, sn, go, goFinder, goSettings, keysReady }) {
     <p className="yt-sub">Everything from niche discovery to a finished, upload-ready video lives here.</p>
 
     {!keysReady && <div className="nv-callout">
-      <div><b>Connect your services to get started.</b> VidRush needs at least YouTube, Anthropic, and Gemini keys.</div>
+      <div><b>Connect your services to get started.</b> VidRush needs at least YouTube, Anthropic, and Gathos keys.</div>
       <button className="yt-btn-o" onClick={goSettings}>Open settings</button>
     </div>}
 

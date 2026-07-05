@@ -1,9 +1,10 @@
 import { useState } from "react";
-import { claude, claudeVision, geminiImage } from "./pipeline";
+import { claude, claudeVision } from "./pipeline";
+import { gathosImage } from "./gathos";
 
-// Thumbnail lab — reference-cloning or from-scratch prompt → Gemini renders.
+// Thumbnail lab — reference-cloning or from-scratch prompt → Gathos renders.
 // Lives inside the Studio as its own step; ported from the old Generator page.
-export default function ThumbLab({ topic, niche, clKey, gemKey, refThumb, format = "16:9", state, setState }) {
+export default function ThumbLab({ topic, niche, clKey, gathosKey, refThumb, format = "16:9", state, setState }) {
   const [thMode, setThMode] = useState(state.thMode || null); // null | "reference" | "scratch"
   const [thRefImg, setThRefImg] = useState(refThumb || "");
   const [thRefB64, setThRefB64] = useState(null);
@@ -13,10 +14,8 @@ export default function ThumbLab({ topic, niche, clKey, gemKey, refThumb, format
   const [refining, setRefining] = useState(false);
   const [count, setCount] = useState("2");
   const [withText, setWithText] = useState(true);
-  const [sendRef, setSendRef] = useState(false);
   const [results, setResults] = useState(state.thumbs || []);
   const [loading, setLoading] = useState([]);
-  const [userRefs, setUserRefs] = useState([]);
   const [cp, setCp] = useState("");
   const vertical = format === "9:16";
 
@@ -33,14 +32,6 @@ export default function ThumbLab({ topic, niche, clKey, gemKey, refThumb, format
       setThRefB64({ data: full.split(",")[1], mime: file.type || "image/jpeg" });
     };
     reader.readAsDataURL(file);
-    e.target.value = "";
-  };
-  const onRefFiles = (e) => {
-    Array.from(e.target.files).slice(0, 5 - userRefs.length).forEach(file => {
-      const reader = new FileReader();
-      reader.onload = (ev) => setUserRefs(prev => prev.length >= 5 ? prev : [...prev, { data: ev.target.result.split(",")[1], mime: file.type || "image/jpeg", preview: ev.target.result }]);
-      reader.readAsDataURL(file);
-    });
     e.target.value = "";
   };
 
@@ -83,15 +74,13 @@ English only. No markdown.`;
   };
 
   const generateOne = async (idx) => {
-    if (!gemKey) return;
+    if (!gathosKey) return;
     setLoading(prev => { const n = [...prev]; n[idx] = true; return n; });
     const textInstr = withText ? "Include bold, eye-catching text/title overlay exactly as described in the prompt." : "IMPORTANT: Do NOT add any text on the image. Purely visual.";
     const variation = idx === 0 ? "" : ` Create variation ${idx + 1} — same style, slightly different angle/composition.`;
     const promptText = `Generate a PHOTOREALISTIC YouTube ${vertical ? "Shorts cover, 9:16" : "video thumbnail, 16:9"} aspect ratio. Must look like a REAL photograph — real skin textures, real materials, real lighting, NOT AI-generated. FOLLOW THIS PROMPT EXACTLY: ${thPrompt.trim() || topic}. ${textInstr}${variation}`;
-    const refs = [...userRefs.map(r => ({ mime: r.mime, data: r.data }))];
-    if (sendRef && thMode === "reference" && thRefB64) refs.unshift({ mime: thRefB64.mime, data: thRefB64.data });
     try {
-      const url = await geminiImage(promptText, gemKey, { aspect: vertical ? "9:16" : "16:9", refs });
+      const url = await gathosImage(promptText, gathosKey, { aspect: vertical ? "9:16" : "16:9" });
       setResults(prev => { const n = [...prev]; n[idx] = { url, prompt: promptText }; save({ thumbs: n }); return n; });
     } catch (e) {
       setResults(prev => { const n = [...prev]; n[idx] = { error: e.message }; return n; });
@@ -163,11 +152,6 @@ English only. No markdown.`;
           <textarea className="yt-input yt-th-prompt-area" rows="6" value={thPrompt} onChange={e => setThPrompt(e.target.value)} onBlur={() => save({})} placeholder="Describe the thumbnail: subject, composition, lighting, mood…"/>
           {thPrompt && <ThRefine thRefine={thRefine} setThRefine={setThRefine} refining={refining} refinePrompt={refinePrompt} copy={copy} cp={cp} thPrompt={thPrompt}/>}
         </div>
-        <div className="yt-th-scratch-refs">
-          <label className="yt-label">Extra reference photos (optional)</label>
-          <label className="yt-thumb-drop"><input type="file" accept="image/*" multiple onChange={onRefFiles} style={{ display: "none" }}/>Add reference photos</label>
-          {userRefs.length > 0 && <div className="yt-thumb-ref-list">{userRefs.map((r, i) => <div key={i} className="yt-thumb-ref-card"><img src={r.preview} className="yt-thumb-ref-img" alt=""/><button className="yt-thumb-ref-rm" onClick={() => setUserRefs(prev => prev.filter((_, j) => j !== i))}>✕</button></div>)}</div>}
-        </div>
       </div>
     </div>}
 
@@ -175,9 +159,8 @@ English only. No markdown.`;
       <div className="yt-thumb-options">
         <div><label className="yt-label">Count</label><select className="yt-sel" value={count} onChange={e => setCount(e.target.value)}>{[1, 2, 3, 4].map(n => <option key={n}>{n}</option>)}</select></div>
         <label className="yt-thumb-check"><input type="checkbox" checked={withText} onChange={e => setWithText(e.target.checked)}/><span>With text overlay</span></label>
-        {thMode === "reference" && thRefImg && <label className="yt-thumb-check"><input type="checkbox" checked={sendRef} onChange={e => setSendRef(e.target.checked)}/><span>Send reference to the model</span></label>}
       </div>
-      <button className="yt-btn-big" onClick={generateAll} disabled={!gemKey} style={{ marginTop: 12 }}>{gemKey ? "Generate thumbnails" : "Add a Gemini key in Settings"}</button>
+      <button className="yt-btn-big" onClick={generateAll} disabled={!gathosKey} style={{ marginTop: 12 }}>{gathosKey ? "Generate thumbnails" : "Add a Gathos key in Settings"}</button>
     </div>}
 
     {results.length > 0 && <>

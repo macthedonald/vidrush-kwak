@@ -168,6 +168,22 @@ export async function geminiTTS(text, voice, key) {
   return { pcm: new Int16Array(bytes.buffer, 0, Math.floor(bytes.length / 2)), rate };
 }
 
+// ---------- Groq Whisper: word-level timestamps for any voiceover ----------
+export async function groqTranscribe(wavBlob, key) {
+  const fd = new FormData();
+  fd.append("file", wavBlob, "voiceover.wav");
+  fd.append("model", "whisper-large-v3-turbo");
+  fd.append("response_format", "verbose_json");
+  fd.append("timestamp_granularities[]", "word");
+  const r = await fetch("https://api.groq.com/openai/v1/audio/transcriptions", {
+    method: "POST", headers: { Authorization: `Bearer ${key}` }, body: fd,
+  });
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(d.error?.message || `Groq ${r.status}`);
+  const words = (d.words || []).map(w => ({ word: w.word, start: +w.start, end: +w.end }));
+  return words.length ? words : null;
+}
+
 export function concatPcm(list) {
   const total = list.reduce((s, p) => s + p.length, 0);
   const out = new Int16Array(total);
