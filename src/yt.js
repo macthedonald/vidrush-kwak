@@ -138,11 +138,49 @@ async function download(url, onStatus, label, maxBytes = 450 * 1024 * 1024) {
   return new Blob(chunks, { type: "video/mp4" });
 }
 
+// The local server engine (Vite middleware / preview server) — no CORS in Node, so the
+// same gateways the browser can't read work fine here. This is the primary route when
+// running `npm run dev` or `npm run preview`.
+async function trySelfHosted(id, onStatus) {
+  if (onStatus) onStatus("Pulling through the local server engine…");
+  const r = await fetch(`/api/yt?id=${id}`);
+  if (!r.ok) {
+    let detail = "";
+    try { const d = await r.json(); detail = (d.attempts || []).slice(0, 3).join(" · "); } catch {}
+    throw new Error(detail ? `server engine: ${detail}` : `server engine HTTP ${r.status}`);
+  }
+  const ct = r.headers.get("content-type") || "";
+  if (!ct.includes("video") && !ct.includes("octet-stream")) throw new Error("server engine returned no video");
+  const title = decodeURIComponent(r.headers.get("x-yt-title") || "") || null;
+  // stream with progress
+  const total = +r.headers.get("content-length") || 0;
+  const reader = r.body.getReader();
+  const chunks = []; let recv = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    chunks.push(value); recv += value.length;
+    if (onStatus) onStatus(`Downloading — ${(recv / 1048576).toFixed(1)}MB${total ? ` of ${(total / 1048576).toFixed(1)}MB` : ""}`);
+  }
+  if (recv < 100 * 1024) throw new Error("server engine stream was empty");
+  return { blob: new Blob(chunks, { type: "video/mp4" }), title };
+}
+
 export async function fetchYouTubeVideo(input, { onStatus, gateway } = {}) {
   const id = ytId(input);
   if (!id) throw new Error("That doesn't look like a YouTube link or video id");
   const watchUrl = `https://www.youtube.com/watch?v=${id}`;
   const errors = [];
+
+  // 0a. Local server engine (works in dev/preview; absent on pure-static hosting).
+  try {
+    const { blob, title } = await trySelfHosted(id, onStatus);
+    const nm = (title || id).replace(/[^\w ]+/g, "").slice(0, 60) || id;
+    return { file: new File([blob], `${nm}.mp4`, { type: "video/mp4" }), title: title || id, duration: 0, via: "local server" };
+  } catch (e) {
+    // Only note it if it wasn't a plain "route not present" 404 (static hosting)
+    if (!/HTTP 404/.test(e.message)) errors.push(e.message.slice(0, 90));
+  }
 
   // 0. The user's own gateway (a personal cobalt instance) — most reliable when set.
   //    Settings accepts "https://host" or "https://host YOUR_API_KEY".
