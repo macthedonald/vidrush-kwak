@@ -72,6 +72,17 @@ npm run dev     # local dev server
 npm run build   # production build in dist/
 ```
 
+## Deploy to Vercel
+
+The app is a static Vite SPA — Vercel builds it with zero config beyond the included `vercel.json`.
+
+1. Push the repo to GitHub (done).
+2. In the Vercel dashboard: **Add New → Project → Import** this repo. Framework preset auto-detects as Vite; `vercel.json` sets the build command, output dir (`dist`), SPA rewrites, and skips the yt-dlp binary download (not needed in the static deploy). Click **Deploy**.
+   - Or locally: `npx vercel` (first run prompts login), then `npx vercel --prod`.
+3. Open the app, go to **Settings**, paste your API keys (stored in your browser only).
+
+**One caveat:** the `/api/yt` yt-dlp download route only runs under `npm run dev`/`npm run preview` (it's a Node middleware). On Vercel it isn't deployed — but the **Learn from a video** feature doesn't need it, because Gemini reads YouTube links directly. Everything else is fully client-side and works on Vercel as-is.
+
 ## Notes
 
 - Chrome/Edge use the WebCodecs fast encoder (much faster than realtime); browsers without it fall back to a realtime recorder that needs the tab focused.
