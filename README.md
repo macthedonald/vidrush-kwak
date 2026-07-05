@@ -13,7 +13,7 @@ Clean, quiet interface: light theme, left-sidebar navigation (Home / Niche finde
 - **Save niche** or **Research this niche →** — saving auto-seeds the breakout channels as competitors, and Research picks up from there: scan → topics → brief → Studio. One unbroken flow from "does this niche work?" to a finished video.
 
 **Learn from a video (vision)**
-- Paste a **YouTube link** or drop any video file. YouTube blocks browsers from reading streams (CORS), so `npm run dev`/`npm run preview` include a small **server-side fetch engine** (a Vite middleware at `/api/yt`) that pulls the video through community gateways (cobalt → Piped → Invidious) in Node, where CORS doesn't apply, and streams it back same-origin. Set `YT_COBALT=https://your-cobalt-instance` (optionally `https://host|API_KEY`) for a guaranteed route. On pure-static hosting without the server, it falls back to a browser gateway cascade, then to manual file drop. The app then detects every cut frame by frame, extracts a keyframe per shot, transcribes the audio (Groq), and Claude reverse-engineers the structure — hook technique, phase order (real footage → commentary over b-roll → graphics), cut pacing, visual mix, narration devices.
+- Paste a **YouTube link** — **Gemini watches it directly** (no download) and reverse-engineers the structure — hook technique, phase order (real footage → commentary over b-roll → graphics), cut pacing, visual mix, narration devices. Or drop a video file (Gemini File API for large clips). When an actual download IS needed, `npm run dev`/`preview` include a **yt-dlp** server engine (`/api/yt`, via the `youtube-dl-exec` binary) — no browser CORS to fight.
 - Saved as a **template**: pick it in the Studio toolbar and the script, storyboard pacing, and per-shot source types follow it — shots in "real footage" phases are auto-sourced from stock providers instead of generated.
 
 **Self-learning memory**
@@ -54,7 +54,7 @@ A **creative brief** card sits in the Script step (optional): research-driven an
 | Gathos (images) | all frame + thumbnail generation | studio |
 | Gathos (video) | AI-generated clips per shot | optional |
 | Groq | Whisper word-timed subtitles | optional |
-| Gemini | built-in Gemini voices | optional |
+| Gemini | video analysis (Learn from video) + built-in TTS voices | optional |
 | AI33 (api.ai33.pro) | ElevenLabs / MiniMax / Fish Audio voices + cloning | optional |
 | Coverr | real b-roll video (primary source) | optional |
 | Pixabay | real b-roll video/photo (primary source) | optional |

@@ -1,207 +1,114 @@
-import { useState, useRef } from "react";
-import { claudeVisionMulti, groqTranscribeSegments, extractAudioWav16k, parseJson, fmtTime } from "./pipeline";
-import { fetchYouTubeVideo, ytId } from "./yt";
+import { useState } from "react";
+import { geminiAnalyzeVideo, parseJson, fmtTime } from "./pipeline";
+import { ytId } from "./yt";
 
-// Learn from a video: detect shots frame-by-frame, extract keyframes, transcribe the audio,
-// and have Claude reverse-engineer the video's structure into a reusable template (Video DNA)
-// that the Studio replicates — hook style, phase order (real footage vs b-roll vs graphics),
-// cut pacing, narration devices.
+// Learn from a video: Gemini watches the whole video (a YouTube URL directly, or an uploaded
+// file) and reverse-engineers its structure into a reusable template (Video DNA) that the
+// Studio replicates — hook style, phase order (real footage → commentary over b-roll →
+// graphics), cut pacing, narration devices.
 
 const ls = (k, fb) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : fb; } catch { return fb; } };
 const ss = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} };
 
-const SYS_DNA = `You are a video structure analyst. You receive keyframes from a YouTube video in chronological order (one per detected shot, with timestamps) plus its transcript. Reverse-engineer HOW this video works so another video on a different topic can replicate the exact structure.
-Look frame by frame: which shots are REAL footage (archival, news, phone clips, interviews), which are stock b-roll, which are AI/graphics/text cards, when narration starts relative to the visuals, how the hook works, how the pacing changes across the video.
-Return ONLY JSON:
+const SYS_DNA = `You are a video structure analyst. Watch the entire video and reverse-engineer HOW it works so another video on a completely different topic can replicate the exact structure and pacing.
+Pay attention to: which segments use REAL footage (archival, news, phone clips, interviews, real locations of the actual subject), which use stock b-roll, which use AI/graphics/text cards; exactly when narration starts relative to the visuals; how the opening hook works; how cut speed changes across the video; on-screen text, captions, and music.
+Return ONLY JSON (no markdown):
 {
  "summary": "2-3 sentences on how this video works",
+ "durationSeconds": 512,
+ "shotCount": 140,
  "hook": {"seconds": 12, "technique": "what happens before/at the start of narration"},
- "phases": [{"name":"cold open","startPct":0,"endPct":8,"visual":"real archival footage of the subject","audio":"natural sound, no narration yet","notes":"..."}],
+ "phases": [{"name":"cold open","startPct":0,"endPct":8,"visual":"real archival footage of the subject","audio":"natural sound, no narration yet","sourceType":"real","notes":"..."}],
  "pacing": {"avgShotSeconds": 3.2, "notes": "how cut speed changes across the video"},
  "visualMix": {"realFootagePct": 40, "brollPct": 35, "graphicsPct": 25},
  "narration": {"tone": "...", "devices": ["open loops","direct address"], "notes": "..."},
  "overlays": "on-screen text usage", "subtitles": "caption style if any", "music": "music/sfx usage",
  "replicationRules": ["Open with 8-12s of real footage of the actual subject before any narration", "..."]
 }
-Phases must cover 0-100% in order. Be concrete and prescriptive — these rules drive an automated video builder.`;
+Each phase's "sourceType" is "real", "broll", or "graphics". Phases must cover 0-100% in order. Be concrete and prescriptive — these rules drive an automated video builder.`;
 
-function seekTo(v, t) {
-  return new Promise(res => {
-    const done = () => { v.removeEventListener("seeked", done); res(); };
-    v.addEventListener("seeked", done);
-    v.currentTime = t;
-    setTimeout(done, 1500);
-  });
-}
-
-async function detectShots(v, onProgress) {
-  const dur = Math.min(v.duration || 0, 1200);
-  const step = dur > 600 ? 1 : 0.5;
-  const c = document.createElement("canvas"); c.width = 64; c.height = 36;
-  const g = c.getContext("2d", { willReadFrequently: true });
-  let prev = null;
-  const bounds = [0];
-  for (let t = 0; t < dur; t += step) {
-    await seekTo(v, t);
-    g.drawImage(v, 0, 0, 64, 36);
-    const d = g.getImageData(0, 0, 64, 36).data;
-    if (prev) {
-      let diff = 0;
-      for (let i = 0; i < d.length; i += 16) diff += Math.abs(d[i] - prev[i]) + Math.abs(d[i + 1] - prev[i + 1]) + Math.abs(d[i + 2] - prev[i + 2]);
-      if (diff / (d.length / 16) > 55) bounds.push(t);
-    }
-    prev = d.slice(0);
-    if (onProgress) onProgress(t / dur);
-  }
-  const shots = [];
-  for (let i = 0; i < bounds.length; i++) shots.push({ start: bounds[i], end: bounds[i + 1] ?? dur });
-  return shots.filter(s => s.end - s.start >= 0.4);
-}
-
-async function grabKeyframes(v, shots, max = 36) {
-  const picked = shots.length <= max ? shots : Array.from({ length: max }, (_, i) => shots[Math.floor(i * shots.length / max)]);
-  const c = document.createElement("canvas");
-  const scale = 360 / v.videoWidth;
-  c.width = 360; c.height = Math.round(v.videoHeight * scale);
-  const g = c.getContext("2d");
-  const frames = [];
-  for (const s of picked) {
-    await seekTo(v, s.start + Math.min(0.5, (s.end - s.start) / 2));
-    g.drawImage(v, 0, 0, c.width, c.height);
-    frames.push({ t: s.start, dur: s.end - s.start, img: c.toDataURL("image/jpeg", 0.55) });
-  }
-  return frames;
-}
-
-export default function Vision({ clKey, groqKey, ytGw }) {
+export default function Vision({ gemKey }) {
   const [templates, setTemplates] = useState(() => ls("vr8-templates", []));
-  const [file, setFile] = useState(null);
-  const [phase, setPhase] = useState("");     // shots | frames | audio | dna | done
-  const [prog, setProg] = useState(0);
-  const [frames, setFrames] = useState([]);
+  const [busy, setBusy] = useState(false);
+  const [status, setStatus] = useState("");
   const [dna, setDna] = useState(null);
-  const [meta, setMeta] = useState(null);     // {duration, shots, avgShot}
+  const [thumb, setThumb] = useState("");
   const [name, setName] = useState("");
   const [err, setErr] = useState("");
   const [ytUrl, setYtUrl] = useState("");
-  const [fetching, setFetching] = useState(false);
-  const [fetchSt, setFetchSt] = useState("");
-  const videoRef = useRef(null);
-  const running = phase && phase !== "done";
 
   const saveTemplates = t => { setTemplates(t); ss("vr8-templates", t); };
 
-  const fetchFromYouTube = async () => {
-    if (!ytId(ytUrl)) { setErr("Paste a full YouTube link (watch, shorts, or youtu.be)"); return; }
-    if (!clKey) { setErr("Add your Anthropic key in Settings first — Claude does the visual analysis."); return; }
-    setErr(""); setFetching(true); setFetchSt("Starting…");
+  const run = async (source, displayName, previewThumb) => {
+    if (!gemKey) { setErr("Add your Gemini API key in Settings — Gemini watches and analyzes the video."); return; }
+    setErr(""); setDna(null); setThumb(previewThumb || ""); setBusy(true); setStatus("Starting…");
     try {
-      const { file: f, title } = await fetchYouTubeVideo(ytUrl, { onStatus: setFetchSt, gateway: ytGw });
-      setFetching(false); setFetchSt("");
-      await analyze(f, title);
-    } catch (e) { setErr(e.message); setFetching(false); setFetchSt(""); }
-  };
-
-  const analyze = async (f, displayName) => {
-    if (!clKey) { setErr("Add your Anthropic key in Settings first — Claude does the visual analysis."); return; }
-    setErr(""); setDna(null); setFrames([]); setMeta(null); setFile(f);
-    const url = URL.createObjectURL(f);
-    const v = videoRef.current;
-    v.src = url; v.muted = true;
-    await new Promise((res, rej) => { v.onloadedmetadata = res; v.onerror = () => rej(new Error("Could not open this video file")); }).catch(e => { setErr(e.message); });
-    if (!isFinite(v.duration)) {
-      // WebM files from screen/canvas recorders report Infinity until forced to resolve
-      await new Promise(res => { v.ondurationchange = () => isFinite(v.duration) && res(); v.currentTime = 1e7; setTimeout(res, 3000); });
-      v.currentTime = 0;
-    }
-    if (!v.duration || !isFinite(v.duration)) { setErr("Could not read this video's duration — try re-encoding it as MP4"); return; }
-    try {
-      setPhase("shots"); setProg(0);
-      const shots = await detectShots(v, setProg);
-      const avgShot = shots.reduce((s, x) => s + (x.end - x.start), 0) / Math.max(shots.length, 1);
-      setMeta({ duration: v.duration, shots: shots.length, avgShot });
-
-      setPhase("frames");
-      const kf = await grabKeyframes(v, shots);
-      setFrames(kf);
-
-      let transcript = "(no transcript — analyze visuals only)";
-      if (groqKey) {
-        setPhase("audio");
-        try {
-          const { wav, truncated } = await extractAudioWav16k(f);
-          const tr = await groqTranscribeSegments(wav, groqKey);
-          transcript = tr.segments.map(s => `[${fmtTime(s.start)}] ${s.text.trim()}`).join("\n").slice(0, 9000) + (truncated ? "\n(transcript truncated)" : "");
-        } catch (e) { transcript = `(transcription failed: ${e.message} — analyze visuals only)`; }
-      }
-
-      setPhase("dna");
-      const shotList = kf.map((s, i) => `Image ${i + 1}: shot at ${fmtTime(s.t)}, length ${s.dur.toFixed(1)}s`).join("\n");
-      const raw = await claudeVisionMulti(SYS_DNA,
-        `Video length: ${fmtTime(v.duration)} · ${shots.length} detected shots · average shot ${avgShot.toFixed(1)}s.\nThe ${kf.length} images are chronological keyframes:\n${shotList}\n\nTRANSCRIPT:\n${transcript}\n\nReturn ONLY the JSON.`,
-        kf.map(s => s.img), clKey);
+      const raw = await geminiAnalyzeVideo(source, SYS_DNA, "Analyze this video's structure and return ONLY the JSON described.", gemKey, { onStatus: setStatus });
       const parsed = parseJson(raw);
       setDna(parsed);
-      setName((displayName || f.name.replace(/\.[^.]+$/, "")).slice(0, 40));
-      setPhase("done");
-    } catch (e) { setErr(e.message); setPhase(""); }
+      setName((displayName || "Template").slice(0, 40));
+    } catch (e) { setErr(e.message); }
+    setBusy(false); setStatus("");
+  };
+
+  const fromYouTube = () => {
+    const id = ytId(ytUrl);
+    if (!id) { setErr("Paste a full YouTube link (watch, shorts, or youtu.be)"); return; }
+    run({ youtubeUrl: `https://www.youtube.com/watch?v=${id}` }, "", `https://img.youtube.com/vi/${id}/hqdefault.jpg`);
+  };
+  const fromFile = async (f) => {
+    if (f.size > 200 * 1024 * 1024) { setErr("That file is over 200MB — trim it or use a shorter clip."); return; }
+    const thumbUrl = await grabPoster(f).catch(() => "");
+    run({ file: f }, f.name.replace(/\.[^.]+$/, ""), thumbUrl);
   };
 
   const saveTemplate = () => {
     if (!dna || !name.trim()) return;
-    const t = { id: Date.now(), name: name.trim(), date: new Date().toISOString().slice(0, 10), duration: meta.duration, shots: meta.shots, avgShot: meta.avgShot, thumb: frames[0]?.img || "", dna };
+    const t = {
+      id: Date.now(), name: name.trim(), date: new Date().toISOString().slice(0, 10),
+      duration: dna.durationSeconds || 0, shots: dna.shotCount || 0,
+      avgShot: dna.pacing?.avgShotSeconds || 0, thumb, dna,
+    };
     saveTemplates([t, ...templates]);
-    setDna(null); setFile(null); setPhase(""); setFrames([]);
+    setDna(null); setThumb(""); setName(""); setYtUrl("");
   };
 
+  const mix = dna?.visualMix;
   return (<div className="yt-page">
     <h1 className="yt-page-title">Learn from a video</h1>
-    <p className="yt-sub">Drop a video that works — the app studies it frame by frame (shot pacing, when real footage plays vs b-roll, how the hook lands) and saves the structure as a template the Studio can replicate on any topic.</p>
-
-    <video ref={videoRef} style={{ display: "none" }} playsInline/>
+    <p className="yt-sub">Give Gemini a video that works — it watches the whole thing and reverse-engineers the structure (hook, when real footage plays vs b-roll, cut pacing, narration devices) into a template the Studio replicates on any topic.</p>
 
     <div className="yt-card">
-      {!running && !fetching && !dna && <>
+      {!busy && !dna && <>
         <div className="yt-input-row">
-          <input className="yt-input" placeholder="Paste a YouTube link — https://youtube.com/watch?v=…" value={ytUrl} onChange={e => setYtUrl(e.target.value)} onKeyDown={e => e.key === "Enter" && fetchFromYouTube()}/>
-          <button className="yt-btn" onClick={fetchFromYouTube} disabled={!ytUrl.trim()}>Fetch & analyze</button>
+          <input className="yt-input" placeholder="Paste a YouTube link — https://youtube.com/watch?v=…" value={ytUrl} onChange={e => setYtUrl(e.target.value)} onKeyDown={e => e.key === "Enter" && fromYouTube()}/>
+          <button className="yt-btn" onClick={fromYouTube} disabled={!ytUrl.trim()}>Analyze</button>
         </div>
-        <p className="yt-hint">YouTube's own servers block browsers from reading streams (no CORS), so links are pulled through cobalt gateways — auto-discovered from the live community tracker, or your own instance from Settings. If everything is down, drop the file below.</p>
+        <p className="yt-hint">Gemini reads the YouTube link directly — no download needed. Or drop a file below (up to 200MB; larger clips upload to Gemini first).</p>
         <label className="vn-drop" style={{ marginTop: 10 }}>
-          <input type="file" accept="video/*" style={{ display: "none" }} onChange={e => { const f = e.target.files?.[0]; if (f) analyze(f); e.target.value = ""; }}/>
+          <input type="file" accept="video/*" style={{ display: "none" }} onChange={e => { const f = e.target.files?.[0]; if (f) fromFile(f); e.target.value = ""; }}/>
           <span className="vn-drop-t">…or drop a video file here</span>
-          <span className="vn-drop-d">mp4 / webm / mov · analysis runs entirely in your browser{groqKey ? "" : " · add a Groq key in Settings to include the transcript"}</span>
+          <span className="vn-drop-d">mp4 / webm / mov</span>
         </label>
       </>}
-      {fetching && <div className="yt-ld-box"><div className="yt-spin"/><p>{fetchSt}</p></div>}
 
-      {running && <div className="vn-run">
-        <div className="yt-ld-box"><div className="yt-spin"/>
-          <p>{phase === "shots" ? `Detecting cuts frame by frame… ${Math.round(prog * 100)}%` : phase === "frames" ? "Extracting keyframes…" : phase === "audio" ? "Transcribing the audio…" : "Claude is studying the structure…"}</p>
-        </div>
-        {frames.length > 0 && <div className="vn-strip">{frames.slice(0, 14).map((s, i) => <img key={i} src={s.img} alt=""/>)}</div>}
-      </div>}
-      {err && <>
-        <p className="yt-st err">⚠ {err}</p>
-        {frames.length > 0 && !dna && <>
-          {meta && <p className="yt-hint">Frame analysis itself succeeded — {meta.shots} shots detected ({meta.avgShot.toFixed(1)}s average). The failure was at the AI step; fix the key/connection and drop the file again.</p>}
-          <div className="vn-strip">{frames.slice(0, 14).map((s, i) => <img key={i} src={s.img} alt="" title={fmtTime(s.t)}/>)}</div>
-        </>}
-      </>}
+      {busy && <div className="yt-ld-box"><div className="yt-spin"/><p>{status || "Working…"}</p></div>}
+      {err && <p className="yt-st err">⚠ {err}</p>}
 
       {dna && <div className="vn-result">
-        {meta && <div className="yt-info-bar" style={{ marginTop: 0 }}>
-          <div className="yt-info-item"><span className="yt-info-num">{fmtTime(meta.duration)}</span>length</div>
-          <div className="yt-info-item"><span className="yt-info-num">{meta.shots}</span>shots</div>
-          <div className="yt-info-item"><span className="yt-info-num">{meta.avgShot.toFixed(1)}s</span>avg shot</div>
-          {dna.visualMix && <div className="yt-info-item"><span className="yt-info-num">{dna.visualMix.realFootagePct ?? "–"}%</span>real footage</div>}
-        </div>}
-        <div className="vn-strip">{frames.slice(0, 14).map((s, i) => <img key={i} src={s.img} alt="" title={fmtTime(s.t)}/>)}</div>
+        {thumb && <img src={thumb} alt="" className="vn-hero"/>}
+        <div className="yt-info-bar" style={{ marginTop: 14 }}>
+          {dna.durationSeconds ? <div className="yt-info-item"><span className="yt-info-num">{fmtTime(dna.durationSeconds)}</span>length</div> : null}
+          {dna.shotCount ? <div className="yt-info-item"><span className="yt-info-num">{dna.shotCount}</span>shots</div> : null}
+          {dna.pacing?.avgShotSeconds ? <div className="yt-info-item"><span className="yt-info-num">{Number(dna.pacing.avgShotSeconds).toFixed(1)}s</span>avg shot</div> : null}
+          {mix?.realFootagePct != null && <div className="yt-info-item"><span className="yt-info-num">{mix.realFootagePct}%</span>real footage</div>}
+        </div>
+        {mix && <div className="vn-mix"><span className="vn-mix-seg" style={{ flex: mix.realFootagePct || 0, background: "var(--blue)" }} title={`Real footage ${mix.realFootagePct}%`}/><span className="vn-mix-seg" style={{ flex: mix.brollPct || 0, background: "var(--green)" }} title={`B-roll ${mix.brollPct}%`}/><span className="vn-mix-seg" style={{ flex: mix.graphicsPct || 0, background: "var(--amber)" }} title={`Graphics ${mix.graphicsPct}%`}/></div>}
         <p className="vn-summary">{dna.summary}</p>
         {dna.hook && <p className="yt-hint"><b>Hook ({dna.hook.seconds}s):</b> {dna.hook.technique}</p>}
         {(dna.phases || []).length > 0 && <div className="vn-phases">{dna.phases.map((p, i) => <div key={i} className="vn-phase">
           <span className="vn-phase-pct">{p.startPct}–{p.endPct}%</span>
-          <div><div className="vn-phase-n">{p.name}</div><div className="vn-phase-d">{p.visual}{p.audio ? ` · ${p.audio}` : ""}</div></div>
+          <div style={{ flex: 1 }}><div className="vn-phase-n">{p.name}{p.sourceType && <span className={`vn-src vn-src-${p.sourceType}`}>{p.sourceType}</span>}</div><div className="vn-phase-d">{p.visual}{p.audio ? ` · ${p.audio}` : ""}</div></div>
         </div>)}</div>}
         {(dna.replicationRules || []).length > 0 && <div className="yt-opt-section" style={{ marginTop: 14 }}>
           <div className="yt-opt-label" style={{ marginBottom: 6 }}>Replication rules</div>
@@ -210,7 +117,7 @@ export default function Vision({ clKey, groqKey, ytGw }) {
         <div className="yt-input-row" style={{ marginTop: 16 }}>
           <input className="yt-input" placeholder="Template name" value={name} onChange={e => setName(e.target.value)}/>
           <button className="yt-btn" onClick={saveTemplate} disabled={!name.trim()}>Save template</button>
-          <button className="yt-btn-o" onClick={() => { setDna(null); setPhase(""); setFrames([]); }}>Discard</button>
+          <button className="yt-btn-o" onClick={() => { setDna(null); setThumb(""); }}>Discard</button>
         </div>
       </div>}
     </div>
@@ -221,7 +128,7 @@ export default function Vision({ clKey, groqKey, ytGw }) {
         {t.thumb && <img src={t.thumb} alt=""/>}
         <div className="vn-tpl-b">
           <div className="vn-tpl-n">{t.name}</div>
-          <div className="vn-tpl-m">{fmtTime(t.duration)} · {t.shots} shots · {t.avgShot.toFixed(1)}s avg · {t.date}</div>
+          <div className="vn-tpl-m">{t.duration ? fmtTime(t.duration) + " · " : ""}{t.shots ? t.shots + " shots · " : ""}{t.avgShot ? Number(t.avgShot).toFixed(1) + "s avg · " : ""}{t.date}</div>
           <p className="vn-tpl-s">{t.dna.summary}</p>
           <button className="yt-x" style={{ position: "absolute", top: 8, right: 8 }} onClick={() => { if (confirm("Delete this template?")) saveTemplates(templates.filter(x => x.id !== t.id)); }}>✕</button>
         </div>
@@ -232,20 +139,43 @@ export default function Vision({ clKey, groqKey, ytGw }) {
   </div>);
 }
 
+// Grab one frame from an uploaded file for the template thumbnail.
+function grabPoster(file) {
+  return new Promise((res, rej) => {
+    const v = document.createElement("video");
+    v.muted = true; v.playsInline = true; v.src = URL.createObjectURL(file);
+    v.onloadeddata = () => { v.currentTime = Math.min(2, (v.duration || 4) / 2); };
+    v.onseeked = () => {
+      const c = document.createElement("canvas");
+      const scale = 480 / (v.videoWidth || 480);
+      c.width = 480; c.height = Math.round((v.videoHeight || 270) * scale);
+      c.getContext("2d").drawImage(v, 0, 0, c.width, c.height);
+      res(c.toDataURL("image/jpeg", 0.6));
+      URL.revokeObjectURL(v.src);
+    };
+    v.onerror = () => rej(new Error("thumb failed"));
+    setTimeout(() => rej(new Error("thumb timeout")), 6000);
+  });
+}
+
 const VN_CSS = `
 .vn-drop{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;padding:60px 20px;border:1px dashed var(--border2);border-radius:var(--radius2);cursor:pointer;background:var(--surface);text-align:center}
 .vn-drop:hover{border-color:var(--text3)}
 .vn-drop-t{font-size:15px;font-weight:600}
 .vn-drop-d{font-size:12.5px;color:var(--text3);max-width:520px;line-height:1.5}
-.vn-run{padding:10px 0}
-.vn-strip{display:flex;gap:6px;overflow-x:auto;padding:10px 0}
-.vn-strip img{height:64px;border-radius:6px;border:1px solid var(--border);flex-shrink:0}
+.vn-hero{width:100%;max-width:420px;border-radius:var(--radius2);border:1px solid var(--border);display:block}
+.vn-mix{display:flex;height:8px;border-radius:4px;overflow:hidden;margin:12px 0}
+.vn-mix-seg{display:block}
 .vn-summary{font-size:14px;line-height:1.6;margin:12px 0;color:var(--text)}
 .vn-phases{display:flex;flex-direction:column;gap:6px;margin-top:12px}
 .vn-phase{display:flex;gap:12px;align-items:baseline;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius3);padding:8px 12px}
 .vn-phase-pct{font-family:var(--mono);font-size:11px;color:var(--text3);min-width:64px}
-.vn-phase-n{font-size:13px;font-weight:600}
+.vn-phase-n{font-size:13px;font-weight:600;display:flex;align-items:center;gap:8px}
 .vn-phase-d{font-size:12px;color:var(--text2)}
+.vn-src{font-size:9px;font-weight:600;text-transform:uppercase;letter-spacing:.4px;padding:1px 6px;border-radius:7px}
+.vn-src-real{background:var(--blue-bg);color:var(--blue)}
+.vn-src-broll{background:var(--green-bg);color:var(--green)}
+.vn-src-graphics{background:var(--surface2);color:var(--text2)}
 .vn-rule{font-size:12.5px;color:var(--text2);line-height:1.6}
 .vn-tpls{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:14px}
 .vn-tpl{position:relative;display:flex;gap:0;flex-direction:column;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius2);overflow:hidden}

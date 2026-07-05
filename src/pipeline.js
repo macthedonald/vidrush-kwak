@@ -6,9 +6,11 @@ import * as lame from "@breezystack/lamejs";
 
 const Mp3Encoder = lame.Mp3Encoder || lame.default?.Mp3Encoder;
 const ANTHROPIC = "https://api.anthropic.com/v1/messages";
-const CLAUDE_MODELS = ["claude-sonnet-5", "claude-sonnet-4-20250514"];
+const CLAUDE_MODELS = ["claude-sonnet-5"];
 export const GEM_IMG_MODEL = "gemini-3-pro-image-preview";
 const GEM_TTS_MODEL = "gemini-2.5-flash-preview-tts";
+const GEM_VIDEO_MODEL = "gemini-2.5-flash"; // native video understanding
+const GEM_API = "https://generativelanguage.googleapis.com";
 export const VOICES = ["Charon", "Kore", "Puck", "Fenrir", "Zephyr", "Aoede", "Orus", "Leda"];
 
 // ---------- Claude (with retry/backoff on rate limits and overload) ----------
@@ -78,34 +80,43 @@ export async function claudeVision(system, userText, imageSource, key, { maxToke
   throw new Error(lastErr);
 }
 
-// Tolerant JSON extraction: strips fences/preamble, and repairs truncated arrays
-// by trimming back to the last complete element instead of throwing "Unexpected end of JSON input".
+// Repair a truncated JSON fragment: trim from the end to the last point where the
+// structure is balanced (not mid-string, brackets matched), then close open brackets.
+// Handles truncated arrays AND nested objects. Returns undefined if unrepairable.
+function repairJson(body) {
+  for (let end = body.length; end > 1; end--) {
+    const head = body.slice(0, end).replace(/[,:\s]+$/, "");
+    if (!head) continue;
+    let inStr = false, esc = false, ok = true;
+    const stack = [];
+    for (let i = 0; i < head.length; i++) {
+      const c = head[i];
+      if (inStr) { if (esc) esc = false; else if (c === "\\") esc = true; else if (c === '"') inStr = false; continue; }
+      if (c === '"') inStr = true;
+      else if (c === "{") stack.push("}");
+      else if (c === "[") stack.push("]");
+      else if (c === "}" || c === "]") { if (!stack.length) { ok = false; break; } stack.pop(); }
+    }
+    if (!ok || inStr) continue; // mid-string or unbalanced close — keep trimming
+    try { return JSON.parse(head + stack.reverse().join("")); } catch {}
+  }
+  return undefined;
+}
+
+// Tolerant JSON extraction: strips fences/preamble, then repairs truncation instead of
+// throwing "Unexpected end of JSON input".
 export function parseJson(raw) {
   const t = (raw || "").replace(/```json|```/g, "").trim();
   if (!t) throw new Error("The AI returned an empty response — please try again");
-  const tryParse = s => { try { return JSON.parse(s); } catch { return undefined; } };
   const a = t.indexOf("["), c = t.indexOf("{");
-  let body = t, isArray = false;
-  if (a !== -1 && (c === -1 || a < c)) {
-    isArray = true;
-    const b = t.lastIndexOf("]");
-    body = b > a ? t.slice(a, b + 1) : t.slice(a);
-  } else if (c !== -1) {
-    const d = t.lastIndexOf("}");
-    body = d > c ? t.slice(c, d + 1) : t.slice(c);
-  }
-  let out = tryParse(body);
-  if (out !== undefined) return out;
-  if (isArray) {
-    let s = body.replace(/\]\s*$/, "");
-    for (let i = 0; i < 80 && s.length > 2; i++) {
-      const cut = Math.max(s.lastIndexOf("}"), s.lastIndexOf('"'));
-      if (cut <= 1) break;
-      out = tryParse(s.slice(0, cut + 1) + "]");
-      if (out !== undefined) return out;
-      s = s.slice(0, cut);
-    }
-  }
+  const startsArray = a !== -1 && (c === -1 || a < c);
+  const start = startsArray ? a : c;
+  let body = start >= 0 ? t.slice(start) : t;
+  const lastClose = startsArray ? body.lastIndexOf("]") : body.lastIndexOf("}");
+  const whole = lastClose > 0 ? body.slice(0, lastClose + 1) : body;
+  try { return JSON.parse(whole); } catch {}
+  const repaired = repairJson(body);
+  if (repaired !== undefined) return repaired;
   throw new Error("Couldn't read the AI's JSON response — hit the button again");
 }
 
@@ -211,6 +222,86 @@ export async function claudeVisionMulti(system, text, imageDataUrls, key, { maxT
     }
   }
   throw new Error(lastErr);
+}
+
+// ---------- Gemini native video understanding ----------
+// Uploads a video file to the Gemini File API (resumable), waits until ACTIVE, returns its uri.
+async function geminiUploadFile(file, key, onStatus) {
+  const start = await fetch(`${GEM_API}/upload/v1beta/files?key=${key}`, {
+    method: "POST",
+    headers: {
+      "X-Goog-Upload-Protocol": "resumable",
+      "X-Goog-Upload-Command": "start",
+      "X-Goog-Upload-Header-Content-Length": String(file.size),
+      "X-Goog-Upload-Header-Content-Type": file.type || "video/mp4",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ file: { display_name: file.name || "video" } }),
+  });
+  if (!start.ok) throw new Error(`Gemini upload start ${start.status}`);
+  const uploadUrl = start.headers.get("x-goog-upload-url");
+  if (!uploadUrl) throw new Error("Gemini did not return an upload URL");
+  if (onStatus) onStatus("Uploading video to Gemini…");
+  const up = await fetch(uploadUrl, {
+    method: "POST",
+    headers: { "X-Goog-Upload-Offset": "0", "X-Goog-Upload-Command": "upload, finalize" },
+    body: file,
+  });
+  if (!up.ok) throw new Error(`Gemini upload ${up.status}`);
+  const info = await up.json();
+  let name = info.file?.name;
+  let uri = info.file?.uri;
+  let state = info.file?.state;
+  const deadline = Date.now() + 180000;
+  while (state === "PROCESSING" && Date.now() < deadline) {
+    if (onStatus) onStatus("Gemini is processing the video…");
+    await new Promise(r => setTimeout(r, 3000));
+    const s = await fetch(`${GEM_API}/v1beta/${name}?key=${key}`);
+    const d = await s.json();
+    state = d.state; uri = d.uri || uri;
+  }
+  if (state !== "ACTIVE") throw new Error(`Gemini video never became ready (state ${state})`);
+  return { uri, mimeType: file.type || "video/mp4" };
+}
+
+// Analyze a video with Gemini. source = { youtubeUrl } (Gemini fetches it — no download)
+// or { file } (uploaded: inline if small, File API if large). Returns the model's text.
+export async function geminiAnalyzeVideo(source, systemPrompt, userPrompt, key, { onStatus, json = true } = {}) {
+  if (!key) throw new Error("Add your Gemini API key in Settings to analyze videos");
+  let mediaPart;
+  if (source.youtubeUrl) {
+    mediaPart = { file_data: { file_uri: source.youtubeUrl } };
+  } else if (source.file) {
+    const f = source.file;
+    if (f.size <= 18 * 1024 * 1024) {
+      if (onStatus) onStatus("Encoding video for Gemini…");
+      const b64 = await new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result.split(",")[1]); r.onerror = rej; r.readAsDataURL(f); });
+      mediaPart = { inline_data: { mime_type: f.type || "video/mp4", data: b64 } };
+    } else {
+      const up = await geminiUploadFile(f, key, onStatus);
+      mediaPart = { file_data: { mime_type: up.mimeType, file_uri: up.uri } };
+    }
+  } else throw new Error("No video source provided");
+
+  const body = {
+    system_instruction: { parts: [{ text: systemPrompt }] },
+    contents: [{ parts: [{ text: userPrompt }, mediaPart] }],
+    generationConfig: { temperature: 0.4, maxOutputTokens: 8000, ...(json ? { responseMimeType: "application/json" } : {}) },
+  };
+  if (onStatus) onStatus("Gemini is watching the video…");
+  let resp;
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    resp = await fetch(`${GEM_API}/v1beta/models/${GEM_VIDEO_MODEL}:generateContent?key=${key}`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+    });
+    if ((resp.status === 429 || resp.status === 500 || resp.status === 503) && attempt < 3) { await new Promise(r => setTimeout(r, attempt * 4000)); continue; }
+    break;
+  }
+  const d = await resp.json().catch(() => ({}));
+  if (!resp.ok) throw new Error(d.error?.message || `Gemini ${resp.status}`);
+  const text = (d.candidates?.[0]?.content?.parts || []).map(p => p.text || "").join("");
+  if (!text.trim()) throw new Error("Gemini returned an empty analysis — try again");
+  return text;
 }
 
 // ---------- Groq Whisper: word-level timestamps for any voiceover ----------
