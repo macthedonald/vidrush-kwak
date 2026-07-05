@@ -97,6 +97,25 @@ function filterByDays(vids, days) {
 const fmt = n => n >= 1e6 ? (n/1e6).toFixed(1)+"M" : n >= 1e3 ? (n/1e3).toFixed(0)+"K" : String(n);
 
 const SYS_T = `YouTube strategist. Analyze REAL competitor data. 10 NEW English topics. Return ONLY JSON: [{"title":"...","angle":"...","why":"...","inspired_by":"..."}]`;
+// Tolerant array extraction — trims preamble/fences and repairs truncated arrays.
+function parseArr(raw) {
+  const t = (raw || "").replace(/```json|```/g, "").trim();
+  if (!t) throw new Error("The AI returned an empty response — please try again");
+  const tryP = x => { try { return JSON.parse(x); } catch { return undefined; } };
+  const a = t.indexOf("["); const b = t.lastIndexOf("]");
+  let body = a !== -1 ? (b > a ? t.slice(a, b + 1) : t.slice(a)) : t;
+  let out = tryP(body);
+  if (out !== undefined) return out;
+  let s2 = body.replace(/\]\s*$/, "");
+  for (let i = 0; i < 80 && s2.length > 2; i++) {
+    const cut = Math.max(s2.lastIndexOf("}"), s2.lastIndexOf('"'));
+    if (cut <= 1) break;
+    out = tryP(s2.slice(0, cut + 1) + "]");
+    if (out !== undefined) return out;
+    s2 = s2.slice(0, cut);
+  }
+  throw new Error("Couldn't read the AI's JSON response — hit the button again");
+}
 
 const P = { HOME: 0, NICHE: 1, STUDIO: 3, FINDER: 4, SETTINGS: 5 };
 
@@ -409,7 +428,7 @@ function NichePg({ niche, niches, ytKey, clKey, sn, back, gen }) {
 
   const genTopics = async (data) => {
     const usedStr=usedTitles.length?`\n\nALREADY DONE:\n${usedTitles.join("\n")}`:"";
-    try { const raw=await ai(SYS_T,`Niche: ${niche.name}\n${niche.desc||""}\n\nTOP:\n${data}${usedStr}\n\n10 English topics.`,clKey); return JSON.parse(raw.replace(/```json|```/g,"").trim()); } catch(e){ throw e; }
+    const raw=await ai(SYS_T,`Niche: ${niche.name}\n${niche.desc||""}\n\nTOP:\n${data}${usedStr}\n\n10 English topics.`,clKey); return parseArr(raw);
   };
 
   useEffect(() => { if (chs.length && ytKey && !scanned) { setScanned(true); analyze(); } }, []);
@@ -484,7 +503,7 @@ function NichePg({ niche, niches, ytKey, clKey, sn, back, gen }) {
     try {
       const top = allRaw.slice(0, 10).map(v => `"${v.title}" (${fmt(v.views)})`).join("\n");
       const raw = await ai(`You improve YouTube titles. Given a draft title and the niche's top performers, return ONLY a JSON array of 3 stronger title variants (under 70 chars, same topic, patterns that match what performs).`, `Draft: "${t}"\n\nTop performers in this niche:\n${top}`, clKey);
-      setTitleVars(JSON.parse(raw.replace(/```json|```/g, "").trim()));
+      setTitleVars(parseArr(raw));
     } catch {}
     setScoring(false);
   };

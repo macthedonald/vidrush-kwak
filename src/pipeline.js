@@ -25,9 +25,13 @@ async function claudeCall(body, key) {
       await new Promise(res => setTimeout(res, attempt * 4000));
       continue;
     }
-    const d = await r.json();
+    let d;
+    try { d = await r.json(); }
+    catch { throw new Error(`Anthropic returned an unreadable response (HTTP ${r.status}) — try again`); }
     if (d.error) throw new Error(d.error.message);
-    return d.content?.[0]?.text || "";
+    const text = (d.content || []).map(c => c.text || "").join("");
+    if (!text.trim()) throw new Error("Anthropic returned an empty response — try again");
+    return text;
   }
   throw new Error(lastErr);
 }
@@ -74,13 +78,35 @@ export async function claudeVision(system, userText, imageSource, key, { maxToke
   throw new Error(lastErr);
 }
 
+// Tolerant JSON extraction: strips fences/preamble, and repairs truncated arrays
+// by trimming back to the last complete element instead of throwing "Unexpected end of JSON input".
 export function parseJson(raw) {
-  const t = raw.replace(/```json|```/g, "").trim();
-  const a = t.indexOf("["), b = t.lastIndexOf("]");
-  if (a !== -1 && b > a) return JSON.parse(t.slice(a, b + 1));
-  const c = t.indexOf("{"), d = t.lastIndexOf("}");
-  if (c !== -1 && d > c) return JSON.parse(t.slice(c, d + 1));
-  return JSON.parse(t);
+  const t = (raw || "").replace(/```json|```/g, "").trim();
+  if (!t) throw new Error("The AI returned an empty response — please try again");
+  const tryParse = s => { try { return JSON.parse(s); } catch { return undefined; } };
+  const a = t.indexOf("["), c = t.indexOf("{");
+  let body = t, isArray = false;
+  if (a !== -1 && (c === -1 || a < c)) {
+    isArray = true;
+    const b = t.lastIndexOf("]");
+    body = b > a ? t.slice(a, b + 1) : t.slice(a);
+  } else if (c !== -1) {
+    const d = t.lastIndexOf("}");
+    body = d > c ? t.slice(c, d + 1) : t.slice(c);
+  }
+  let out = tryParse(body);
+  if (out !== undefined) return out;
+  if (isArray) {
+    let s = body.replace(/\]\s*$/, "");
+    for (let i = 0; i < 80 && s.length > 2; i++) {
+      const cut = Math.max(s.lastIndexOf("}"), s.lastIndexOf('"'));
+      if (cut <= 1) break;
+      out = tryParse(s.slice(0, cut + 1) + "]");
+      if (out !== undefined) return out;
+      s = s.slice(0, cut);
+    }
+  }
+  throw new Error("Couldn't read the AI's JSON response — hit the button again");
 }
 
 // ---------- Prompts ----------

@@ -108,7 +108,10 @@ export default function NicheFinder({ ytKey, clKey, niches, sn, goNiche }) {
     if (!seed.trim()) { setSt("⚠ Type a broad topic first, e.g. “history”, “finance”, “true crime”"); return; }
     setSuggesting(true); setSt("Finding sub-niches...");
     try {
-      const arr = parseJson(await claude(SYS_SUBNICHES, `Broad topic: ${seed.trim()}`, clKey));
+      let arr;
+      try { arr = parseJson(await claude(SYS_SUBNICHES, `Broad topic: ${seed.trim()}`, clKey)); }
+      catch { arr = parseJson(await claude(SYS_SUBNICHES + `\nCRITICAL: respond with ONLY the raw JSON array — no prose, no markdown, no explanation.`, `Broad topic: ${seed.trim()}`, clKey)); }
+      if (!Array.isArray(arr) || !arr.length) throw new Error("No suggestions came back — try a broader topic");
       setKws(prev => [...new Set([...prev, ...arr.map(a => String(a).toLowerCase())])]);
       setSt(`✅ ${arr.length} sub-niches suggested — hit Analyze`);
     } catch (e) { setSt("⚠ " + e.message); }
