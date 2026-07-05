@@ -20,15 +20,20 @@ Clean, quiet interface: light theme, left-sidebar navigation (Home / Niche finde
 5. **Title scorer** — scores a working title against the patterns of this niche's top performers, with AI-written stronger variants.
 
 **Storyboard Studio** (from any topic, or the play icon next to a sidebar topic)
-1. **Script** — writes the complete word-for-word narration (hook, curiosity loops, retention hooks, CTA), guided by the creative brief built from your competitor research. Editable.
+1. **Script** — writes the complete word-for-word narration (hook, curiosity loops, retention hooks, CTA), guided by the creative brief. Editable.
 2. **Storyboard** — splits the script verbatim into fast **3–5 second shots** (8–14 words each), every shot with its own visual prompt, b-roll search queries, and optional overlay text. Fully editable, per-shot delete.
 3. **Visuals** — one 16:9 frame or clip per shot, in one of three looks:
    - **Cinematic AI** — photoreal Gemini frames, Ken Burns motion, fast crossfades
    - **Real Assets** — sourcing cascade: **Coverr video → Pixabay video/photo → Pexels fallback**, with a per-shot picker modal and automatic attribution. Real clips play live inside the final render.
    - **Stickman Doodle** — hand-drawn marker frames, hard cuts, no zoom
 4. **Voiceover** — voiced per script section for natural prosody, then beat-synced across the 3–5s shots by word count. Voice picker modal with **all 30 Gemini TTS voices**, plus **ElevenLabs, MiniMax, and Fish Audio voices via your AI33 account** (live-searchable) — including **voice cloning** (upload a ≤10MB sample, it's cloned on AI33 and appears under My Clones, deletable). Preview any voice before committing. Download the full voiceover as **MP3** or WAV.
-5. **Render** — in-browser renderer (canvas + MediaRecorder): fast cuts, Ken Burns on stills, real clips playing, word-level **karaoke subtitles**, 720p/1080p. **Background music**: upload your own track (any audio format) or generate an instrumental with **Suno via AI33** — looped, volume-ducked under the voiceover, auto fade-out. Downloads as **MP4** (Chrome/Safari) or WebM. Renders in real time — keep the tab focused.
-6. **SEO Package** — titles, description, tags, pinned comment, **auto-timestamped chapters**, and collected asset credits. Every generated package is **pinned to the Dashboard home** with one-tap copy buttons, and downloadable as a `.zip`.
+5. **Render** — **WebCodecs fast encoder** (frame-accurate H.264/AAC MP4, faster than realtime, survives background tabs) with automatic fallback to the realtime canvas recorder. **16:9 or 9:16 vertical** — the format selector flows through storyboard prompts, image aspect, canvas size, and subtitle layout. Word-level **karaoke subtitles** use exact word timestamps when an AI33 voice returns a transcript. **Background music**: upload your own track or generate an instrumental with **Suno via AI33** — looped, ducked, auto fade-out.
+6. **Thumbnail** — the thumbnail lab as a Studio step: clone a reference thumbnail's style or write from scratch, refine the prompt conversationally, generate variants matching your video's format.
+7. **SEO Package** — titles, description, tags, pinned comment, **auto-timestamped chapters**, and collected asset credits. Pinned to Home with one-tap copy, downloadable as a `.zip`.
+
+A **creative brief** card sits in the Script step (optional): research-driven angle/facts/audience, and remakes of the same topic automatically avoid items used in earlier versions.
+
+**Projects persist.** Text lives in localStorage; frames, sourced clips, voiceover audio, music, and rendered videos live in IndexedDB — reload the page and everything is still there. Settings has a one-file **export/import backup**.
 
 **Autopilot** runs script → storyboard → all visuals → all voiceover → SEO in one click; you review and hit Render.
 
