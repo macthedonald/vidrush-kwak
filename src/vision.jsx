@@ -73,7 +73,7 @@ async function grabKeyframes(v, shots, max = 36) {
   return frames;
 }
 
-export default function Vision({ clKey, groqKey }) {
+export default function Vision({ clKey, groqKey, ytGw }) {
   const [templates, setTemplates] = useState(() => ls("vr8-templates", []));
   const [file, setFile] = useState(null);
   const [phase, setPhase] = useState("");     // shots | frames | audio | dna | done
@@ -96,7 +96,7 @@ export default function Vision({ clKey, groqKey }) {
     if (!clKey) { setErr("Add your Anthropic key in Settings first — Claude does the visual analysis."); return; }
     setErr(""); setFetching(true); setFetchSt("Starting…");
     try {
-      const { file: f, title } = await fetchYouTubeVideo(ytUrl, { onStatus: setFetchSt });
+      const { file: f, title } = await fetchYouTubeVideo(ytUrl, { onStatus: setFetchSt, gateway: ytGw });
       setFetching(false); setFetchSt("");
       await analyze(f, title);
     } catch (e) { setErr(e.message); setFetching(false); setFetchSt(""); }
@@ -166,7 +166,7 @@ export default function Vision({ clKey, groqKey }) {
           <input className="yt-input" placeholder="Paste a YouTube link — https://youtube.com/watch?v=…" value={ytUrl} onChange={e => setYtUrl(e.target.value)} onKeyDown={e => e.key === "Enter" && fetchFromYouTube()}/>
           <button className="yt-btn" onClick={fetchFromYouTube} disabled={!ytUrl.trim()}>Fetch & analyze</button>
         </div>
-        <p className="yt-hint">YouTube's own servers block browsers from reading streams (no CORS), so the link is pulled through live community gateways (Piped / Invidious) — the app discovers working ones automatically. If all mirrors are down, drop the file below.</p>
+        <p className="yt-hint">YouTube's own servers block browsers from reading streams (no CORS), so links are pulled through cobalt gateways — auto-discovered from the live community tracker, or your own instance from Settings. If everything is down, drop the file below.</p>
         <label className="vn-drop" style={{ marginTop: 10 }}>
           <input type="file" accept="video/*" style={{ display: "none" }} onChange={e => { const f = e.target.files?.[0]; if (f) analyze(f); e.target.value = ""; }}/>
           <span className="vn-drop-t">…or drop a video file here</span>

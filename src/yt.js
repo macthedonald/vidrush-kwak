@@ -4,6 +4,16 @@
 // WITH CORS. Individual instances come and go, so we discover live instances from the
 // official directories at runtime and cascade through them until one delivers.
 
+// Known-open cobalt API instances (community list fluctuates; the live tracker below is authoritative).
+const COBALT_SEEDS = [
+  "https://cobalt-api.kwiatekmiki.com",
+  "https://capi.oak.li",
+  "https://cobalt-api.ayo.tf",
+  "https://api.dl.ixhby.dev",
+  "https://dl.khyernet.xyz",
+  "https://cobalt.api.timelessnesses.me",
+];
+
 const PIPED_SEEDS = [
   "https://pipedapi.kavin.rocks",
   "https://pipedapi.adminforge.de",
@@ -36,6 +46,52 @@ async function jget(url, ms = 8000) {
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
     return await r.json();
   } finally { clearTimeout(t); }
+}
+
+async function jpost(url, body, ms = 14000, headers = {}) {
+  const ctl = new AbortController();
+  const t = setTimeout(() => ctl.abort(), ms);
+  try {
+    const r = await fetch(url, {
+      method: "POST", signal: ctl.signal,
+      headers: { Accept: "application/json", "Content-Type": "application/json", ...headers },
+      body: JSON.stringify(body),
+    });
+    const d = await r.json().catch(() => ({}));
+    return { ok: r.ok, status: r.status, data: d };
+  } finally { clearTimeout(t); }
+}
+
+// cobalt (the engine behind cobalt.tools): the most reliable community route in 2026.
+// alwaysProxy forces the media through the instance's tunnel, which serves CORS — so the
+// browser can actually read the bytes. Auth-gated instances are skipped automatically.
+async function tryCobalt(api, videoUrl, onStatus, apiKey) {
+  const base = api.replace(/\/+$/, "");
+  const host = base.replace(/^https?:\/\//, "");
+  if (onStatus) onStatus(`Trying ${host}…`);
+  const { data: d } = await jpost(`${base}/`, {
+    url: videoUrl, videoQuality: "360", youtubeVideoCodec: "h264",
+    filenameStyle: "basic", alwaysProxy: true,
+  }, 16000, apiKey ? { Authorization: `Api-Key ${apiKey}` } : {});
+  if (d.status === "error") throw new Error(d.error?.code || "cobalt error");
+  const streamUrl = d.url || d.picker?.find(p => p.type === "video")?.url || d.picker?.[0]?.url;
+  if (!streamUrl) throw new Error(`no stream (status ${d.status || "unknown"})`);
+  const blob = await download(streamUrl, onStatus, host);
+  const title = (d.filename || "").replace(/\.[^.]+$/, "") || null;
+  return { blob, title, via: host };
+}
+
+async function discoverCobalt() {
+  let list = [...COBALT_SEEDS];
+  try {
+    const d = await jget("https://instances.cobalt.best/instances.json", 6000);
+    const live = (d || [])
+      .filter(e => e.api && e.api_online !== false && e.protocol !== "http" && e.services?.youtube !== false)
+      .sort((a, b) => (b.score || 0) - (a.score || 0))
+      .map(e => `https://${e.api}`);
+    if (live.length) list = [...new Set([...live, ...COBALT_SEEDS])];
+  } catch {}
+  return list.slice(0, 10);
 }
 
 const shuffle = a => a.map(x => [Math.random(), x]).sort((p, q) => p[0] - q[0]).map(p => p[1]);
@@ -82,12 +138,34 @@ async function download(url, onStatus, label, maxBytes = 450 * 1024 * 1024) {
   return new Blob(chunks, { type: "video/mp4" });
 }
 
-export async function fetchYouTubeVideo(input, { onStatus } = {}) {
+export async function fetchYouTubeVideo(input, { onStatus, gateway } = {}) {
   const id = ytId(input);
   if (!id) throw new Error("That doesn't look like a YouTube link or video id");
-  if (onStatus) onStatus("Finding a live gateway…");
-  const { piped, invid } = await discoverInstances();
+  const watchUrl = `https://www.youtube.com/watch?v=${id}`;
   const errors = [];
+
+  // 0. The user's own gateway (a personal cobalt instance) — most reliable when set.
+  //    Settings accepts "https://host" or "https://host YOUR_API_KEY".
+  if (gateway?.trim()) {
+    const [gwUrl, gwKey] = gateway.trim().split(/\s+/);
+    try {
+      const { blob, title, via } = await tryCobalt(gwUrl, watchUrl, onStatus, gwKey);
+      return { file: new File([blob], `${(title || id).replace(/[^\w ]+/g, "").slice(0, 60) || id}.mp4`, { type: "video/mp4" }), title: title || id, duration: 0, via };
+    } catch (e) { errors.push(`your gateway: ${e.message.slice(0, 80)}`); }
+  }
+
+  // 1. cobalt community instances (live-ranked tracker + seeds)
+  if (onStatus) onStatus("Finding a live gateway…");
+  const cobalt = await discoverCobalt();
+  for (const api of cobalt) {
+    try {
+      const { blob, title, via } = await tryCobalt(api, watchUrl, onStatus);
+      return { file: new File([blob], `${(title || id).replace(/[^\w ]+/g, "").slice(0, 60) || id}.mp4`, { type: "video/mp4" }), title: title || id, duration: 0, via };
+    } catch (e) { errors.push(`${api.replace(/^https?:\/\//, "")}: ${e.message.slice(0, 60)}`); }
+  }
+
+  // 2. Piped / Invidious (legacy fallback — most public instances no longer serve streams)
+  const { piped, invid } = await discoverInstances();
 
   for (const api of piped) {
     const host = api.replace(/^https?:\/\//, "");
@@ -119,5 +197,5 @@ export async function fetchYouTubeVideo(input, { onStatus } = {}) {
   }
 
   console.warn("YouTube gateways failed:", errors);
-  throw new Error(`Couldn't pull this video through any public gateway (${errors.length} tried — these community mirrors fluctuate). Try again in a minute, or download the file and drop it here instead.`);
+  throw new Error(`Couldn't pull this video through any gateway (${errors.length} tried). Quickest fixes: open cobalt.tools in a new tab, paste the link, download the file and drop it here — or set your own cobalt gateway in Settings for a permanently reliable route. (Details logged to the browser console.)`);
 }

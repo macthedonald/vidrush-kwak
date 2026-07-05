@@ -129,6 +129,7 @@ export default function App() {
   const [gathosKey, setGathosKey] = useState("");
   const [gathosVidKey, setGathosVidKey] = useState("");
   const [groqKey, setGroqKey] = useState("");
+  const [ytGw, setYtGw] = useState("");
   const [pexKey, setPexKey] = useState("");
   const [pixKey, setPixKey] = useState("");
   const [covKey, setCovKey] = useState("");
@@ -139,7 +140,7 @@ export default function App() {
   const [ok, setOk] = useState(false);
   const [sb, setSb] = useState(true);
 
-  useEffect(() => { cleanThumbs("vr6-niches"); setNiches(ls("vr6-niches", ls("vr5-niches",[]))); setYtKey(ls("vr6-yt", ls("vr5-yt",""))); setClKey(ls("vr6-cl", ls("vr5-cl",""))); setGemKey(ls("vr6-gem","")); setPexKey(ls("vr7-pex","")); setPixKey(ls("vr7-pix","")); setCovKey(ls("vr7-cov","")); setAi33Key(ls("vr7-a33","")); setGathosKey(ls("vr8-gat","")); setGathosVidKey(ls("vr8-gatv","")); setGroqKey(ls("vr8-groq","")); const a33b=ls("vr7-a33b",AI33_DEFAULT_BASE); setAi33Base(a33b==="https://ai33.pro/api"?AI33_DEFAULT_BASE:a33b); setOk(true); }, []);
+  useEffect(() => { cleanThumbs("vr6-niches"); setNiches(ls("vr6-niches", ls("vr5-niches",[]))); setYtKey(ls("vr6-yt", ls("vr5-yt",""))); setClKey(ls("vr6-cl", ls("vr5-cl",""))); setGemKey(ls("vr6-gem","")); setPexKey(ls("vr7-pex","")); setPixKey(ls("vr7-pix","")); setCovKey(ls("vr7-cov","")); setAi33Key(ls("vr7-a33","")); setGathosKey(ls("vr8-gat","")); setGathosVidKey(ls("vr8-gatv","")); setGroqKey(ls("vr8-groq","")); setYtGw(ls("vr8-ytgw","")); const a33b=ls("vr7-a33b",AI33_DEFAULT_BASE); setAi33Base(a33b==="https://ai33.pro/api"?AI33_DEFAULT_BASE:a33b); setOk(true); }, []);
   const sn = n => { setNiches(n); ss("vr6-niches",n); };
   const openNiche = (n) => {
     // Always read fresh from localStorage to avoid stale closures
@@ -253,11 +254,11 @@ export default function App() {
         </button>}
       <main className="yt-main"><ErrorBoundary><Suspense fallback={<PageLoader/>}>
         {pg===P.HOME && <Home niches={niches} sn={sn} go={n=>{openNiche(n);setPg(P.NICHE);}} goFinder={()=>setPg(P.FINDER)} goSettings={()=>setPg(P.SETTINGS)} keysReady={!!(ytKey&&clKey&&gathosKey)} />}
-        {pg===P.SETTINGS && <SettingsPg niches={niches} keys={{ytKey,clKey,gemKey,gathosKey,gathosVidKey,groqKey,pexKey,pixKey,covKey,ai33Key,ai33Base}} setKeys={k=>{setYtKey(k.ytKey);ss("vr6-yt",k.ytKey);setClKey(k.clKey);ss("vr6-cl",k.clKey);setGemKey(k.gemKey);ss("vr6-gem",k.gemKey);setGathosKey(k.gathosKey);ss("vr8-gat",k.gathosKey);setGathosVidKey(k.gathosVidKey);ss("vr8-gatv",k.gathosVidKey);setGroqKey(k.groqKey);ss("vr8-groq",k.groqKey);setPexKey(k.pexKey);ss("vr7-pex",k.pexKey);setPixKey(k.pixKey);ss("vr7-pix",k.pixKey);setCovKey(k.covKey);ss("vr7-cov",k.covKey);setAi33Key(k.ai33Key);ss("vr7-a33",k.ai33Key);setAi33Base(k.ai33Base);ss("vr7-a33b",k.ai33Base);}} />}
+        {pg===P.SETTINGS && <SettingsPg niches={niches} keys={{ytKey,clKey,gemKey,gathosKey,gathosVidKey,groqKey,ytGw,pexKey,pixKey,covKey,ai33Key,ai33Base}} setKeys={k=>{setYtKey(k.ytKey);ss("vr6-yt",k.ytKey);setClKey(k.clKey);ss("vr6-cl",k.clKey);setGemKey(k.gemKey);ss("vr6-gem",k.gemKey);setGathosKey(k.gathosKey);ss("vr8-gat",k.gathosKey);setGathosVidKey(k.gathosVidKey);ss("vr8-gatv",k.gathosVidKey);setGroqKey(k.groqKey);ss("vr8-groq",k.groqKey);setYtGw(k.ytGw);ss("vr8-ytgw",k.ytGw);setPexKey(k.pexKey);ss("vr7-pex",k.pexKey);setPixKey(k.pixKey);ss("vr7-pix",k.pixKey);setCovKey(k.covKey);ss("vr7-cov",k.covKey);setAi33Key(k.ai33Key);ss("vr7-a33",k.ai33Key);setAi33Base(k.ai33Base);ss("vr7-a33b",k.ai33Base);}} />}
         {pg===P.NICHE && niche && <NichePg niche={niches.find(x=>x.id===niche.id)||niche} niches={niches} ytKey={ytKey} clKey={clKey} sn={sn} back={()=>{setNiche(null);setPg(P.HOME);}} gen={(t,v,refThumb)=>openStudio(t,v||1,null,"",refThumb)} />}
         {pg===P.STUDIO && niche && studioCtx && <Studio niche={niche} ctx={studioCtx} clKey={clKey} gemKey={gemKey} gathosKey={gathosKey} gathosVidKey={gathosVidKey} groqKey={groqKey} pexKey={pexKey} pixKey={pixKey} covKey={covKey} ai33Key={ai33Key} ai33Base={ai33Base} addH={addH} updateH={updateH} back={()=>setPg(P.NICHE)} />}
         {pg===P.FINDER && <NicheFinder ytKey={ytKey} clKey={clKey} niches={niches} sn={sn} goNiche={n=>{openNiche(n);setPg(P.NICHE);}} />}
-        {pg===P.VISION && <Vision clKey={clKey} groqKey={groqKey} />}
+        {pg===P.VISION && <Vision clKey={clKey} groqKey={groqKey} ytGw={ytGw} />}
       </Suspense></ErrorBoundary></main>
     </div>
     <style>{CSS}</style>
@@ -298,6 +299,7 @@ function SettingsPg({ keys, setKeys, niches }) {
       {row("ai33Key","AI33","ElevenLabs, MiniMax and Fish Audio voices, voice cloning, and Suno music.","xi-api-key…")}
       {row("ai33Base","AI33 base URL","Only change this if your AI33 dashboard says so.","https://api.ai33.pro","text")}
       {row("groqKey","Groq","Whisper transcription — exact word-timed subtitles for every voice.","gsk_…")}
+      {row("ytGw","YouTube gateway","Optional personal cobalt instance for pulling YouTube links on the Learn page — the most reliable route. Format: https://host, or https://host API_KEY.","https://your-cobalt.example.com","text")}
     </div>
 
     <div className="nv-set-group">
