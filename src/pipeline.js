@@ -11,22 +11,65 @@ export const GEM_IMG_MODEL = "gemini-3-pro-image-preview";
 const GEM_TTS_MODEL = "gemini-2.5-flash-preview-tts";
 export const VOICES = ["Charon", "Kore", "Puck", "Fenrir", "Zephyr", "Aoede", "Orus", "Leda"];
 
-// ---------- Claude ----------
-export async function claude(system, user, key, { maxTokens = 4000 } = {}) {
+// ---------- Claude (with retry/backoff on rate limits and overload) ----------
+async function claudeCall(body, key) {
   let lastErr = "Claude call failed";
-  for (const model of CLAUDE_MODELS) {
+  for (let attempt = 1; attempt <= 4; attempt++) {
     const r = await fetch(ANTHROPIC, {
       method: "POST",
       headers: { "Content-Type": "application/json", "x-api-key": key, "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" },
-      body: JSON.stringify({ model, max_tokens: maxTokens, system, messages: [{ role: "user", content: user }] }),
+      body: JSON.stringify(body),
     });
-    const d = await r.json();
-    if (d.error) {
-      lastErr = d.error.message;
-      if (/model/i.test(lastErr) && model !== CLAUDE_MODELS[CLAUDE_MODELS.length - 1]) continue;
-      throw new Error(lastErr);
+    if ((r.status === 429 || r.status === 500 || r.status === 529) && attempt < 4) {
+      lastErr = `Anthropic ${r.status}`;
+      await new Promise(res => setTimeout(res, attempt * 4000));
+      continue;
     }
+    const d = await r.json();
+    if (d.error) throw new Error(d.error.message);
     return d.content?.[0]?.text || "";
+  }
+  throw new Error(lastErr);
+}
+
+export async function claude(system, user, key, { maxTokens = 4000 } = {}) {
+  let lastErr = "Claude call failed";
+  for (const model of CLAUDE_MODELS) {
+    try {
+      return await claudeCall({ model, max_tokens: maxTokens, system, messages: [{ role: "user", content: user }] }, key);
+    } catch (e) {
+      lastErr = e.message;
+      if (/model/i.test(lastErr) && model !== CLAUDE_MODELS[CLAUDE_MODELS.length - 1]) continue;
+      throw e;
+    }
+  }
+  throw new Error(lastErr);
+}
+
+// Vision variant: imageSource is {data, mime} base64, or a URL string (fetched → base64).
+export async function claudeVision(system, userText, imageSource, key, { maxTokens = 4000 } = {}) {
+  let block;
+  if (typeof imageSource === "object" && imageSource.data) {
+    block = { type: "image", source: { type: "base64", media_type: imageSource.mime, data: imageSource.data } };
+  } else {
+    try {
+      const resp = await fetch(imageSource);
+      const blob = await resp.blob();
+      const b64 = await new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result.split(",")[1]); r.onerror = rej; r.readAsDataURL(blob); });
+      block = { type: "image", source: { type: "base64", media_type: blob.type || "image/jpeg", data: b64 } };
+    } catch {
+      block = { type: "image", source: { type: "url", url: imageSource } };
+    }
+  }
+  let lastErr = "Claude vision call failed";
+  for (const model of CLAUDE_MODELS) {
+    try {
+      return await claudeCall({ model, max_tokens: maxTokens, system, messages: [{ role: "user", content: [block, { type: "text", text: userText }] }] }, key);
+    } catch (e) {
+      lastErr = e.message;
+      if (/model/i.test(lastErr) && model !== CLAUDE_MODELS[CLAUDE_MODELS.length - 1]) continue;
+      throw e;
+    }
   }
   throw new Error(lastErr);
 }
@@ -41,6 +84,18 @@ export function parseJson(raw) {
 }
 
 // ---------- Prompts ----------
+export const SYS_BRIEF = `You are VidRush — an elite YouTube script prompt engineer. Write a creative brief in English.
+
+CRITICAL LENGTH RULE: Your response MUST be between 5,000 and 9,000 characters. This is a HARD LIMIT.
+
+Structure using 4 pillars:
+**What the Video Is About** — 2-3 sentences explaining the topic, narrative arc, core tension
+**Style of Talking** — Narration tone, pacing, transitions, hooks
+**Who This Video Is For** — Audience demographics, what they search for
+**Key Facts Covered** — Talking points with specific facts, numbers, names. Each point: 2-3 bullets max. For 15-min = ~8 points. For 30-min = ~15 points.
+
+Rules: Visual keywords only (no stage directions). ~0.5 talking points per minute. End with Style + Tone line. Keep it CONCISE — quality over quantity.`;
+
 export const SYS_SCRIPT = `You are VidRush Studio — an elite faceless-YouTube scriptwriter with style DNA cloned from the top channels in the given niche.
 Write the COMPLETE word-for-word narration script, ready to be read aloud by a voiceover artist.
 Rules:
@@ -254,6 +309,53 @@ export const fmtTime = s => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).
 export const estDuration = narration => Math.max(2.5, narration.split(/\s+/).filter(Boolean).length / 2.6);
 
 // ---------- Renderer: canvas + MediaRecorder → MP4/WebM ----------
+// Paint one frame of the timeline at time `now` — shared by both renderers.
+function paintFrame(g, timeline, now, W, H, style, subtitles) {
+  const cur = now < 0 ? timeline[0] : (timeline.filter(s => now >= s.start).pop() || timeline[timeline.length - 1]);
+  if (!cur) return null;
+  const p = Math.min(1, Math.max(0, (now - cur.start) / cur.duration));
+  drawScene(g, cur, p, W, H, style);
+  if (style !== "doodle") {
+    const next = timeline[cur.idx + 1];
+    const fadeDur = 0.18;
+    const fadeStart = cur.start + cur.duration - fadeDur;
+    if (next && now > fadeStart) {
+      g.globalAlpha = Math.min(1, (now - fadeStart) / fadeDur);
+      drawScene(g, next, 0, W, H, style);
+      g.globalAlpha = 1;
+    }
+  }
+  if (subtitles && now <= cur.start + cur.duration) drawSubs(g, cur, p, now, W, H, style === "doodle");
+  return cur;
+}
+
+// Offline audio mix: voiceover segments + ducked music → stereo 48k AudioBuffer.
+export async function buildAudioMix({ audioSegs = [], music = null, total, sampleRate = 48000 }) {
+  const len = Math.max(1, Math.ceil(total * sampleRate));
+  const off = new OfflineAudioContext(2, len, sampleRate);
+  for (const seg of audioSegs) {
+    if (!seg.pcm?.length) continue;
+    const buf = off.createBuffer(1, seg.pcm.length, seg.rate);
+    const ch = buf.getChannelData(0);
+    for (let i = 0; i < seg.pcm.length; i++) ch[i] = seg.pcm[i] / 32768;
+    const src = off.createBufferSource();
+    src.buffer = buf; src.connect(off.destination); src.start(seg.start);
+  }
+  if (music?.buffer) {
+    const src = off.createBufferSource();
+    src.buffer = music.buffer; src.loop = true;
+    const gain = off.createGain();
+    const vol = music.volume ?? 0.12;
+    gain.gain.setValueAtTime(0, 0);
+    gain.gain.linearRampToValueAtTime(vol, 1);
+    gain.gain.setValueAtTime(vol, Math.max(1, total - 2));
+    gain.gain.linearRampToValueAtTime(0, total);
+    src.connect(gain); gain.connect(off.destination);
+    src.start(0); src.stop(total);
+  }
+  return off.startRendering();
+}
+
 export function pickMime() {
   const cands = ['video/mp4;codecs="avc1.42E01E,mp4a.40.2"', "video/mp4", 'video/webm;codecs="vp9,opus"', "video/webm"];
   for (const m of cands) if (window.MediaRecorder && MediaRecorder.isTypeSupported(m)) return m;
@@ -267,10 +369,17 @@ function drawCoverM(g, media, W, H, scale, px, py) {
   g.drawImage(media.el, (W - dw) / 2 + px * (dw - W) / 2, (H - dh) / 2 + py * (dh - H) / 2, dw, dh);
 }
 
-function drawSubs(g, scene, p, W, H, doodle) {
+function drawSubs(g, scene, p, now, W, H, doodle) {
   const words = scene.words;
   if (!words.length) return;
-  const idx = Math.min(words.length - 1, Math.floor(p * words.length));
+  // word-accurate timing when the TTS provider returned timestamps; estimated otherwise
+  let idx;
+  if (scene.wordTimes?.length) {
+    idx = scene.wordTimes.findIndex(w => now < w.end);
+    if (idx === -1) idx = scene.wordTimes.length - 1;
+  } else {
+    idx = Math.min(words.length - 1, Math.floor(p * words.length));
+  }
   const per = 7, gStart = Math.floor(idx / per) * per;
   const group = words.slice(gStart, gStart + per);
   g.font = `700 ${Math.round(H * 0.045)}px 'DM Sans', sans-serif`;
@@ -387,27 +496,11 @@ export function renderVideo({ shots, audioSegs = [], total, music = null, style 
       const loop = () => {
         if (stopped) return;
         const now = (performance.now() - startClock) / 1000;
-        const cur = now < 0 ? timeline[0] : (timeline.filter(s => now >= s.start).pop() || timeline[timeline.length - 1]);
-        if (cur) {
-          if (cur.vidEl && playingIdx !== cur.idx) {
-            if (playingIdx >= 0 && timeline[playingIdx]?.vidEl) timeline[playingIdx].vidEl.pause();
-            try { cur.vidEl.currentTime = 0; cur.vidEl.play().catch(() => {}); } catch {}
-            playingIdx = cur.idx;
-          }
-          const p = Math.min(1, Math.max(0, (now - cur.start) / cur.duration));
-          drawScene(g, cur, p, width, height, style);
-          // quick crossfade into the next shot (cinematic/realasset only)
-          if (style !== "doodle") {
-            const next = timeline[cur.idx + 1];
-            const fadeDur = 0.18;
-            const fadeStart = cur.start + cur.duration - fadeDur;
-            if (next && now > fadeStart) {
-              g.globalAlpha = Math.min(1, (now - fadeStart) / fadeDur);
-              drawScene(g, next, 0, width, height, style);
-              g.globalAlpha = 1;
-            }
-          }
-          if (subtitles && now <= cur.start + cur.duration) drawSubs(g, cur, p, width, height, style === "doodle");
+        const cur = paintFrame(g, timeline, now, width, height, style, subtitles);
+        if (cur && cur.vidEl && playingIdx !== cur.idx) {
+          if (playingIdx >= 0 && timeline[playingIdx]?.vidEl) timeline[playingIdx].vidEl.pause();
+          try { cur.vidEl.currentTime = 0; cur.vidEl.play().catch(() => {}); } catch {}
+          playingIdx = cur.idx;
         }
         if (onProgress) onProgress(Math.min(1, Math.max(0, now / total)));
         if (now >= total) { stopped = true; timeline.forEach(s => s.vidEl && s.vidEl.pause()); setTimeout(() => rec.stop(), 300); return; }
@@ -416,6 +509,110 @@ export function renderVideo({ shots, audioSegs = [], total, music = null, style 
       requestAnimationFrame(loop);
     } catch (e) { reject(e); }
   });
+}
+
+// ---------- WebCodecs fast renderer: frame-accurate, faster than realtime, background-safe ----------
+export async function canRenderFast(width, height) {
+  if (!("VideoEncoder" in window) || !("AudioEncoder" in window)) return null;
+  const codecs = ["avc1.640028", "avc1.4d0028", "avc1.42002a", "avc1.42001f"];
+  for (const codec of codecs) {
+    try {
+      const v = await VideoEncoder.isConfigSupported({ codec, width, height, framerate: 30 });
+      if (!v.supported) continue;
+      const a = await AudioEncoder.isConfigSupported({ codec: "mp4a.40.2", sampleRate: 48000, numberOfChannels: 2, bitrate: 128000 });
+      if (a.supported) return codec;
+    } catch {}
+  }
+  return null;
+}
+
+function seekVideo(v, t) {
+  return new Promise(res => {
+    const target = v.duration ? t % v.duration : 0;
+    if (Math.abs(v.currentTime - target) < 0.001) return res();
+    const done = () => { v.removeEventListener("seeked", done); res(); };
+    v.addEventListener("seeked", done);
+    v.currentTime = target;
+    setTimeout(done, 500); // seek watchdog
+  });
+}
+
+export async function renderVideoFast({ shots, audioSegs = [], total, music = null, style = "cinematic", width = 1280, height = 720, fps = 30, subtitles = true, onProgress, isCancelled }) {
+  const { Muxer, ArrayBufferTarget } = await import("mp4-muxer");
+  const codec = await canRenderFast(width, height);
+  if (!codec) throw new Error("WebCodecs H.264/AAC not supported in this browser");
+  const timeline = shots.map((s, idx) => ({ ...s, idx, words: (s.narration || "").split(/\s+/).filter(Boolean) }));
+  total = (total || (timeline.length ? timeline[timeline.length - 1].start + timeline[timeline.length - 1].duration : 0)) + 0.4;
+
+  const canvas = document.createElement("canvas");
+  canvas.width = width; canvas.height = height;
+  const g = canvas.getContext("2d");
+
+  const muxer = new Muxer({
+    target: new ArrayBufferTarget(),
+    video: { codec: "avc", width, height },
+    audio: { codec: "aac", numberOfChannels: 2, sampleRate: 48000 },
+    fastStart: "in-memory",
+  });
+  let encErr = null;
+  const vEnc = new VideoEncoder({ output: (c, m) => muxer.addVideoChunk(c, m), error: e => { encErr = e; } });
+  vEnc.configure({ codec, width, height, framerate: fps, bitrate: width >= 1080 && height >= 1080 ? 12_000_000 : height > width ? 8_000_000 : width >= 1920 ? 12_000_000 : 7_000_000 });
+  const aEnc = new AudioEncoder({ output: (c, m) => muxer.addAudioChunk(c, m), error: e => { encErr = e; } });
+  aEnc.configure({ codec: "mp4a.40.2", sampleRate: 48000, numberOfChannels: 2, bitrate: 128000 });
+
+  // audio first (fast)
+  const mix = await buildAudioMix({ audioSegs, music, total, sampleRate: 48000 });
+  const chunkFrames = 48000; // 1s per AudioData
+  const ch0 = mix.getChannelData(0), ch1 = mix.numberOfChannels > 1 ? mix.getChannelData(1) : ch0;
+  for (let off = 0; off < mix.length; off += chunkFrames) {
+    const n = Math.min(chunkFrames, mix.length - off);
+    const data = new Float32Array(n * 2);
+    data.set(ch0.subarray(off, off + n), 0);
+    data.set(ch1.subarray(off, off + n), n);
+    aEnc.encode(new AudioData({ format: "f32-planar", sampleRate: 48000, numberOfFrames: n, numberOfChannels: 2, timestamp: Math.round(off / 48000 * 1e6), data }));
+  }
+
+  // video frames
+  const totalFrames = Math.ceil(total * fps);
+  for (let f = 0; f < totalFrames; f++) {
+    if (isCancelled?.()) { try { vEnc.close(); aEnc.close(); } catch {} throw new Error("Render cancelled"); }
+    if (encErr) throw encErr;
+    const now = f / fps;
+    const cur = now < 0 ? timeline[0] : (timeline.filter(s => now >= s.start).pop() || timeline[timeline.length - 1]);
+    if (cur?.vidEl) await seekVideo(cur.vidEl, now - cur.start);
+    paintFrame(g, timeline, now, width, height, style, subtitles);
+    const frame = new VideoFrame(canvas, { timestamp: Math.round(now * 1e6), duration: Math.round(1e6 / fps) });
+    vEnc.encode(frame, { keyFrame: f % (fps * 5) === 0 });
+    frame.close();
+    while (vEnc.encodeQueueSize > 8) await new Promise(r => setTimeout(r, 5));
+    if (onProgress && f % 3 === 0) { onProgress(f / totalFrames); await new Promise(r => setTimeout(r, 0)); }
+  }
+  await vEnc.flush(); await aEnc.flush();
+  if (encErr) throw encErr;
+  muxer.finalize();
+  const { buffer } = muxer.target;
+  return { blob: new Blob([buffer], { type: "video/mp4" }), ext: "mp4", duration: total };
+}
+
+// Split a script into [SECTION: X] groups of at most `maxWords` words for chunked storyboarding.
+export function chunkScript(script, maxWords = 1500) {
+  const parts = script.split(/(\[SECTION:[^\]]*\])/).filter(s => s.trim());
+  const sections = [];
+  let cur = "";
+  for (const p of parts) {
+    if (/^\[SECTION:/.test(p)) { if (cur.trim()) sections.push(cur); cur = p; }
+    else cur += "\n" + p;
+  }
+  if (cur.trim()) sections.push(cur);
+  const chunks = [];
+  let buf = "", n = 0;
+  for (const sec of sections.length ? sections : [script]) {
+    const w = sec.split(/\s+/).filter(Boolean).length;
+    if (n && n + w > maxWords) { chunks.push(buf); buf = sec; n = w; }
+    else { buf += (buf ? "\n" : "") + sec; n += w; }
+  }
+  if (buf.trim()) chunks.push(buf);
+  return chunks;
 }
 
 export function loadVideoEl(blobUrl) {

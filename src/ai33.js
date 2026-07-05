@@ -85,12 +85,31 @@ export async function ai33ListVoices(b, key, provider, { search = "", page = 1, 
   })).filter(v => v.id);
 }
 
+// Tolerant word-timestamp extraction from a completed TTS task's metadata.
+function parseTranscriptWords(meta) {
+  const cand = meta.words || meta.transcript?.words || meta.transcript_json?.words
+    || (Array.isArray(meta.transcript) ? meta.transcript : null)
+    || meta.subtitles || meta.alignment?.words || null;
+  if (!Array.isArray(cand) || !cand.length) return null;
+  const norm = cand.map(w => {
+    const word = w.word ?? w.text ?? w.w;
+    let start = w.start ?? w.start_time ?? w.startTime ?? w.s;
+    let end = w.end ?? w.end_time ?? w.endTime ?? w.e;
+    if (word == null || start == null || end == null) return null;
+    if (end > 1000) { start /= 1000; end /= 1000; } // ms → s
+    return { word: String(word), start: +start, end: +end };
+  });
+  return norm.every(Boolean) ? norm : null;
+}
+
 // v3 TTS: FormData create → task_id → poll → fetch audio. voiceId must be prefixed (e.g. elevenlabs_xxx, clone_xxx).
-export async function ai33TTS(b, key, { voiceId, text, speed = 1, onProgress }) {
+// Returns { arrayBuffer, words } — words is null unless transcript timing came back usable.
+export async function ai33TTS(b, key, { voiceId, text, speed = 1, onProgress, transcript = false }) {
   const fd = new FormData();
   fd.append("text", text);
   fd.append("voice_id", voiceId);
   fd.append("speed", String(speed));
+  if (transcript) fd.append("with_transcript", "true");
   const d = await jfetch(`${base(b)}/v3/text-to-speech`, { method: "POST", headers: hdrs(key), body: fd });
   if (!d?.success || !d?.task_id) throw new Error(d?.error_message || "AI33 TTS: no task_id returned");
   const meta = await ai33PollTask(b, key, d.task_id, { onProgress });
@@ -98,7 +117,7 @@ export async function ai33TTS(b, key, { voiceId, text, speed = 1, onProgress }) 
   if (!url) throw new Error("AI33 TTS finished but no audio_url in task metadata");
   const ar = await fetch(url);
   if (!ar.ok) throw new Error(`AI33 audio fetch ${ar.status}`);
-  return ar.arrayBuffer();
+  return { arrayBuffer: await ar.arrayBuffer(), words: transcript ? parseTranscriptWords(meta) : null };
 }
 
 // Clone a voice: POST /v3/text-to-speech/voice-clone (voice_name + audio_file ≤10MB).

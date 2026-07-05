@@ -12,10 +12,12 @@ Clean, quiet interface: light theme, left-sidebar navigation (Home / Niche finde
 - Shows outlier videos (views ≫ channel subs) and **breakout channels**.
 - **Save niche** or **Research this niche →** — saving auto-seeds the breakout channels as competitors, and Research picks up from there: scan → topics → brief → Studio. One unbroken flow from "does this niche work?" to a finished video.
 
-**Research (VidRush core)**
+**Research**
 1. Create a niche, add competitor channels, scan their uploads via the YouTube Data API.
 2. Outlier ranking (views vs channel average) + AI topic suggestions from real competitor data.
-3. Creative brief generator (4-pillar prompt), title/description/tag optimizer, AI thumbnail lab (reference-cloning or from scratch).
+3. **Since your last scan** — every rescan shows new uploads and the biggest view-gainers among tracked competitors.
+4. **Keyword ideas** — live YouTube autocomplete around your seed keyword; click any to open it in the Studio.
+5. **Title scorer** — scores a working title against the patterns of this niche's top performers, with AI-written stronger variants.
 
 **Storyboard Studio** (from any topic, or the play icon next to a sidebar topic)
 1. **Script** — writes the complete word-for-word narration (hook, curiosity loops, retention hooks, CTA), guided by the creative brief built from your competitor research. Editable.
@@ -56,6 +58,6 @@ npm run build   # production build in dist/
 
 ## Notes
 
-- Rendering happens in real time (a 5-minute video takes ~5 minutes). Chrome outputs MP4; other browsers fall back to WebM, which YouTube accepts.
-- Storyboard text, script, and SEO data persist in localStorage per topic; generated frames and audio live in memory for the session (regenerate or re-voice after a reload).
+- Chrome/Edge use the WebCodecs fast encoder (much faster than realtime); browsers without it fall back to a realtime recorder that needs the tab focused.
+- Long scripts are storyboarded in section chunks, and Anthropic calls retry automatically on rate limits.
 - Real-asset mode auto-collects "Photo by X on Pexels" credit lines into the SEO package for safe attribution.

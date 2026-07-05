@@ -32,32 +32,6 @@ async function ai(system, user, key) {
   const d = await r.json(); if (d.error) throw new Error(d.error.message); return d.content?.[0]?.text || "Error";
 }
 
-async function aiVision(system, textMsg, imageSource, key) {
-  // imageSource can be: { data, mime } for base64, or a URL string
-  let imageBlock;
-  if (typeof imageSource === 'object' && imageSource.data) {
-    imageBlock = { type: "image", source: { type: "base64", media_type: imageSource.mime, data: imageSource.data } };
-  } else {
-    // URL — fetch and convert to base64
-    try {
-      const resp = await fetch(imageSource);
-      const blob = await resp.blob();
-      const b64 = await new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result.split(',')[1]); r.onerror = rej; r.readAsDataURL(blob); });
-      imageBlock = { type: "image", source: { type: "base64", media_type: blob.type || "image/jpeg", data: b64 } };
-    } catch { 
-      // fallback to URL type
-      imageBlock = { type: "image", source: { type: "url", url: imageSource } };
-    }
-  }
-  const r = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST", headers: { "Content-Type": "application/json", "x-api-key": key, "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" },
-    body: JSON.stringify({ model: MODEL, max_tokens: 4000, system, messages: [{ role: "user", content: [
-      imageBlock,
-      { type: "text", text: textMsg }
-    ]}] }),
-  });
-  const d = await r.json(); if (d.error) throw new Error(d.error.message); return d.content?.[0]?.text || "Error";
-}
 
 function ls(k, fb) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : fb; } catch { return fb; } }
 function ss(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch(e) { if (e.name === 'QuotaExceededError') { console.warn('localStorage full, cleaning thumbs...'); cleanThumbs(k); try { localStorage.setItem(k, JSON.stringify(v)); } catch {} } } }
@@ -123,49 +97,8 @@ function filterByDays(vids, days) {
 const fmt = n => n >= 1e6 ? (n/1e6).toFixed(1)+"M" : n >= 1e3 ? (n/1e3).toFixed(0)+"K" : String(n);
 
 const SYS_T = `YouTube strategist. Analyze REAL competitor data. 10 NEW English topics. Return ONLY JSON: [{"title":"...","angle":"...","why":"...","inspired_by":"..."}]`;
-const SYS_P = m => `You are VidRush — an elite YouTube script prompt engineer. Write a prompt in English.
 
-⚠️ CRITICAL LENGTH RULE: Your response MUST be between 5,000 and 9,000 characters. COUNT your characters. If you exceed 9,000 chars — STOP and trim. This is a HARD LIMIT.
-
-Structure using 4 pillars:
-🎥 **What the Video Is About** — 2-3 sentences explaining the topic, narrative arc, core tension
-🗣️ **Style of Talking** — Narration tone, pacing, transitions, hooks
-🎯 **Who This Video Is For** — Audience demographics, what they search for
-📌 **Key Facts Covered** — Talking points with specific facts, numbers, names. Each point: 2-3 bullets max. For 15-min = ~8 points. For 30-min = ~15 points.
-
-Rules: Visual keywords only (no stage directions). ~0.5 talking points per minute. End with Style + Tone line. Keep it CONCISE — quality over quantity.${m==="manual"?" Also add: 📋 Follow-Up Q&A (5 short Q&A) + 🎬 Reference Video Notes":""}`;
-const SYS_TH = `You are a YouTube thumbnail prompt specialist. Generate 3 highly detailed thumbnail prompts for AI image generation (Midjourney/DALL-E/Ideogram style).
-
-Each prompt must be:
-- ONE dense paragraph, 80-120 words
-- Start with composition/camera angle
-- Include specific subject description with emotions/actions
-- Color palette and lighting details
-- End with "hyperrealistic cinematic photography, no text, no graphics, 16:9 aspect ratio"
-
-After the 3 prompts, add:
-📝 **Text Overlay Ideas** — 3 clickbait text overlay suggestions with font style, color, and placement recommendations for Canva/Photoshop.
-🎨 **Color Scheme** — dominant and accent colors that work for this topic.`;
-const SYS_OPT_TITLES = `YouTube title optimizer. Return ONLY a JSON array of 5 title strings. Clickbait but honest, under 70 chars, power words, curiosity gaps. English only. Example: ["Title 1","Title 2","Title 3","Title 4","Title 5"]`;
-const SYS_OPT_DESC = `YouTube description writer. Write 3 DIFFERENT YouTube description variants. Each 100-150 words MAX. Structure each:
-- Line 1-2: Strong hook with main keywords (this shows in search preview!)
-- Line 3-4: Brief what the video covers
-- Line 5: CTA — "Subscribe for more [niche] content!"
-- Last line: 5-8 relevant #hashtags
-
-Separate each variant with "---" on its own line. Each variant should have a DIFFERENT tone: 1) Curiosity/mystery 2) Educational/authority 3) Shocking/clickbait. NO timestamps. Keep scannable and keyword-rich. English only. Return ONLY the 3 descriptions separated by ---.`;
-const SYS_OPT_TAGS = `YouTube tag generator. Return ONLY a JSON array of 15-20 tags. Mix broad and long-tail keywords. English only. Example: ["tag1","tag2","tag3"]`;
-const SYS_THREF = `Thumbnail analyst. Analyze this YouTube thumbnail image. Describe in detail:
-1. COMPOSITION — layout, framing, focal points, rule of thirds usage
-2. COLORS — dominant palette, contrast, saturation levels
-3. TEXT — any overlay text style, font weight, positioning, effects (stroke, shadow, glow)
-4. SUBJECT — what's depicted, scale, emotion, action
-5. STYLE — photorealistic vs illustrated, lighting, mood
-6. CLICKBAIT ELEMENTS — arrows, circles, emoji, reactions, before/after
-
-Then write 3 NEW thumbnail prompts for the given topic that replicate this exact visual style. Each prompt: 1 paragraph, "hyperrealistic cinematic", end "no text, 16:9".`;
-
-const P = { HOME: 0, NICHE: 1, GEN: 2, STUDIO: 3, FINDER: 4, SETTINGS: 5 };
+const P = { HOME: 0, NICHE: 1, STUDIO: 3, FINDER: 4, SETTINGS: 5 };
 
 export default function App() {
   const [pg, setPg] = useState(P.HOME);
@@ -226,24 +159,17 @@ export default function App() {
 
   const hist = getHist();
 
-  const openSaved = (h) => {
+  // Everything downstream of a topic happens in the Studio now.
+  const openStudio = (topic, version, histId, prompt, refThumb) => {
     if (!niche) return;
-    setNiche({...niche, topic: h.topic, topicVersion: h.version, savedPrompt: h.prompt||"", savedThumb: h.thumb||"", savedHistId: h.id, savedThumbs: h.thumbs||[], savedOptTitles: h.optTitles||[], savedOptDesc: h.optDesc||"", savedOptTags: h.optTags||[], savedThPrompt: h.thPrompt||"" });
-    setPg(P.GEN);
-  };
-
-  const openStudioFromHist = (h) => {
-    if (!niche) return;
-    setNiche({...niche, topic: h.topic, topicVersion: h.version, savedPrompt: h.prompt||"", savedThumb: h.thumb||"", savedHistId: h.id, savedThumbs: h.thumbs||[], savedOptTitles: h.optTitles||[], savedOptDesc: h.optDesc||"", savedOptTags: h.optTags||[], savedThPrompt: h.thPrompt||""});
-    setStudioCtx({ topic: h.topic, version: h.version, histId: h.id, prompt: h.prompt||"" });
+    setNiche(prev => ({ ...prev, topic, topicVersion: version }));
+    setStudioCtx({ topic, version: version || 1, histId: histId || null, prompt: prompt || "", refThumb: refThumb || "" });
     setPg(P.STUDIO);
   };
-
+  const openStudioFromHist = (h) => openStudio(h.topic, h.version, h.id, h.prompt, h.thumb);
   const remakeTopic = (h) => {
-    if (!niche) return;
     const vc = hist.filter(x => x.topic.toLowerCase() === h.topic.toLowerCase()).length;
-    setNiche({...niche, topic: h.topic, topicVersion: vc + 1, refThumb: ""});
-    setPg(P.GEN);
+    openStudio(h.topic, vc + 1, null, "", "");
   };
 
   const deleteH = (nicheId, histId) => {
@@ -260,7 +186,7 @@ export default function App() {
     }
   };
 
-  const activeNiche = (pg===P.NICHE||pg===P.GEN||pg===P.STUDIO) ? niche : null;
+  const activeNiche = (pg===P.NICHE||pg===P.STUDIO) ? niche : null;
 
   return (<div className="yt-app">
     <div className="nv-shell">
@@ -283,7 +209,7 @@ export default function App() {
             <button className={`nv-item ${activeNiche?.id===n.id?"on":""}`} onClick={()=>{openNiche(n);setPg(P.NICHE);}}>{n.name}</button>
             {activeNiche?.id===n.id && hist.length>0 && <div className="nv-topics">
               {hist.map(h=><div key={h.id} className="nv-topic">
-                <button className="nv-topic-t" title={h.topic} onClick={()=>h.prompt?openSaved(h):remakeTopic(h)}>{h.topic}</button>
+                <button className="nv-topic-t" title={h.topic} onClick={()=>openStudioFromHist(h)}>{h.topic}</button>
                 <button className="nv-topic-b" title="Open in Studio" onClick={()=>openStudioFromHist(h)}>
                   <svg width="11" height="11" viewBox="0 0 16 16"><path fill="currentColor" d="M5.3 2.8a1 1 0 0 1 1.5-.9l7 4.2a1 1 0 0 1 0 1.8l-7 4.2a1 1 0 0 1-1.5-.9V2.8Z"/></svg>
                 </button>
@@ -304,9 +230,8 @@ export default function App() {
       <main className="yt-main"><ErrorBoundary><Suspense fallback={<PageLoader/>}>
         {pg===P.HOME && <Home niches={niches} sn={sn} go={n=>{openNiche(n);setPg(P.NICHE);}} goFinder={()=>setPg(P.FINDER)} goSettings={()=>setPg(P.SETTINGS)} keysReady={!!(ytKey&&clKey&&gemKey)} />}
         {pg===P.SETTINGS && <SettingsPg keys={{ytKey,clKey,gemKey,pexKey,pixKey,covKey,ai33Key,ai33Base}} setKeys={k=>{setYtKey(k.ytKey);ss("vr6-yt",k.ytKey);setClKey(k.clKey);ss("vr6-cl",k.clKey);setGemKey(k.gemKey);ss("vr6-gem",k.gemKey);setPexKey(k.pexKey);ss("vr7-pex",k.pexKey);setPixKey(k.pixKey);ss("vr7-pix",k.pixKey);setCovKey(k.covKey);ss("vr7-cov",k.covKey);setAi33Key(k.ai33Key);ss("vr7-a33",k.ai33Key);setAi33Base(k.ai33Base);ss("vr7-a33b",k.ai33Base);}} />}
-        {pg===P.NICHE && niche && <NichePg niche={niches.find(x=>x.id===niche.id)||niche} niches={niches} ytKey={ytKey} clKey={clKey} sn={sn} back={()=>{setNiche(null);setPg(P.HOME);}} gen={(t,v,refThumb)=>{const fresh=ls("vr6-niches",[]).find(x=>x.id===niche.id)||niche;setNiche({...fresh,topic:t,topicVersion:v||1,refThumb:refThumb||""});setPg(P.GEN);}} />}
-        {pg===P.GEN && niche && <GenPg niche={niche} topic={niche.topic} version={niche.topicVersion||1} clKey={clKey} gemKey={gemKey} addH={addH} updateH={updateH} back={()=>setPg(P.NICHE)} goStudio={ctx=>{setStudioCtx(ctx);setPg(P.STUDIO);}} savedPrompt={niche.savedPrompt} savedThumb={niche.savedThumb} savedHistId={niche.savedHistId} refThumb={niche.refThumb} savedThumbs={niche.savedThumbs} savedOptTitles={niche.savedOptTitles} savedOptDesc={niche.savedOptDesc} savedOptTags={niche.savedOptTags} savedThPrompt={niche.savedThPrompt} />}
-        {pg===P.STUDIO && niche && studioCtx && <Studio niche={niche} ctx={studioCtx} clKey={clKey} gemKey={gemKey} pexKey={pexKey} pixKey={pixKey} covKey={covKey} ai33Key={ai33Key} ai33Base={ai33Base} addH={addH} updateH={updateH} back={()=>setPg(P.GEN)} />}
+        {pg===P.NICHE && niche && <NichePg niche={niches.find(x=>x.id===niche.id)||niche} niches={niches} ytKey={ytKey} clKey={clKey} sn={sn} back={()=>{setNiche(null);setPg(P.HOME);}} gen={(t,v,refThumb)=>openStudio(t,v||1,null,"",refThumb)} />}
+        {pg===P.STUDIO && niche && studioCtx && <Studio niche={niche} ctx={studioCtx} clKey={clKey} gemKey={gemKey} pexKey={pexKey} pixKey={pixKey} covKey={covKey} ai33Key={ai33Key} ai33Base={ai33Base} addH={addH} updateH={updateH} back={()=>setPg(P.NICHE)} />}
         {pg===P.FINDER && <NicheFinder ytKey={ytKey} clKey={clKey} niches={niches} sn={sn} goNiche={n=>{openNiche(n);setPg(P.NICHE);}} />}
       </Suspense></ErrorBoundary></main>
     </div>
@@ -355,6 +280,35 @@ function SettingsPg({ keys, setKeys }) {
     <div className="nv-set-foot">
       <button className="yt-btn" onClick={()=>{setKeys(k);setSaved(true);}}>Save changes</button>
       {saved && <span className="nv-set-saved">Saved</span>}
+    </div>
+
+    <div className="nv-set-group" style={{marginTop:28}}>
+      <div className="nv-set-group-t">Your data</div>
+      <div className="nv-set-row">
+        <div className="nv-set-info">
+          <div className="nv-set-label">Backup</div>
+          <div className="nv-set-desc">Export every niche, topic, script, storyboard, and SEO pack as a single file. Generated media stays on this device.</div>
+        </div>
+        <div className="yt-btn-row">
+          <button className="yt-btn-o" onClick={()=>{
+            const data={}; for(let i=0;i<localStorage.length;i++){const key=localStorage.key(i); if(key&&key.startsWith("vr")) data[key]=localStorage.getItem(key);}
+            const blob=new Blob([JSON.stringify({app:"vidrush",exported:new Date().toISOString(),data},null,2)],{type:"application/json"});
+            const a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download=`vidrush_backup_${new Date().toISOString().slice(0,10)}.json`; a.click();
+          }}>Export</button>
+          <label className="yt-btn-o" style={{cursor:"pointer"}}>
+            <input type="file" accept="application/json" style={{display:"none"}} onChange={e=>{
+              const f=e.target.files?.[0]; if(!f) return;
+              const r=new FileReader();
+              r.onload=ev=>{ try{ const j=JSON.parse(ev.target.result); if(j.app!=="vidrush"||!j.data) throw new Error("not a VidRush backup");
+                if(!confirm("Import this backup? It merges with (and can overwrite) your current data.")) return;
+                Object.entries(j.data).forEach(([key,v])=>localStorage.setItem(key,v)); location.reload();
+              }catch(err){ alert("Import failed: "+err.message); } };
+              r.readAsText(f); e.target.value="";
+            }}/>
+            Import
+          </label>
+        </div>
+      </div>
     </div>
   </div>);
 }
@@ -436,6 +390,9 @@ function NichePg({ niche, niches, ytKey, clKey, sn, back, gen }) {
   const [days, setDays] = useState(0);
   const [allRaw, setAllRaw] = useState([]);
   const [scanned, setScanned] = useState(false);
+  const [deltas, setDeltas] = useState(null);
+  const [kwSeed, setKwSeed] = useState(niche.name); const [kwIdeas, setKwIdeas] = useState([]); const [kwLd, setKwLd] = useState(false);
+  const [titleIn, setTitleIn] = useState(""); const [titleScore, setTitleScore] = useState(null); const [titleVars, setTitleVars] = useState([]); const [scoring, setScoring] = useState(false);
   const chs = niche.channels||[]; const hist = niche.history||[];
   const usedTitles = hist.map(h=>h.topic.toLowerCase());
   const upd = u => { sn(niches.map(n=>n.id===niche.id?u:n)); niche.channels=u.channels; };
@@ -462,8 +419,68 @@ function NichePg({ niche, niches, ytKey, clKey, sn, back, gen }) {
     setOuts(filtered.slice(0,40));
     const data=allO.slice(0,15).map(v=>`"${v.title}" — ${fmt(v.views)} (${v.ratio}x) [${v.channel}]`).join("\n");
     setLastData(data);
+    // what changed since the last scan
+    if (allO.length) {
+      const prev = niche.lastScan;
+      if (prev?.videos?.length) {
+        const prevMap = Object.fromEntries(prev.videos.map(v=>[v.id,v.views]));
+        const newVids = allO.filter(v=>!(v.id in prevMap)).slice(0,6);
+        const movers = allO.filter(v=>v.id in prevMap).map(v=>({...v, delta: v.views-prevMap[v.id]})).filter(v=>v.delta>1000).sort((a,b)=>b.delta-a.delta).slice(0,6);
+        if (newVids.length || movers.length) setDeltas({ since: prev.date, newVids, movers });
+      }
+      upd({...niche, lastScan: { date: new Date().toISOString().slice(0,10), videos: allO.slice(0,300).map(v=>({id:v.id, views:v.views})) }});
+    }
     if(!allO.length){setSt("No videos found.");} else {setSt(`✅ ${allO.length} videos loaded`);}
     setLd(false);
+  };
+
+  // YouTube autocomplete via JSONP (the endpoint has no CORS)
+  const ytSuggest = (q) => new Promise((res, rej) => {
+    const cb = "__yts" + Math.random().toString(36).slice(2);
+    const s = document.createElement("script");
+    const cleanup = () => { delete window[cb]; s.remove(); };
+    window[cb] = (data) => { cleanup(); res((data?.[1] || []).map(x => Array.isArray(x) ? x[0] : x)); };
+    s.onerror = () => { cleanup(); rej(new Error("Autocomplete unavailable")); };
+    s.src = `https://suggestqueries.google.com/complete/search?client=youtube&ds=yt&q=${encodeURIComponent(q)}&jsonp=${cb}`;
+    document.body.appendChild(s);
+    setTimeout(() => { if (window[cb]) { cleanup(); rej(new Error("Autocomplete timed out")); } }, 6000);
+  });
+  const findKeywords = async () => {
+    if (!kwSeed.trim()) return;
+    setKwLd(true);
+    try {
+      const batches = await Promise.allSettled([ytSuggest(kwSeed), ytSuggest(kwSeed + " why"), ytSuggest(kwSeed + " how"), ytSuggest("what " + kwSeed)]);
+      const all = [...new Set(batches.flatMap(b => b.status === "fulfilled" ? b.value : []))].filter(k => k.toLowerCase() !== kwSeed.toLowerCase());
+      setKwIdeas(all.slice(0, 24));
+      if (!all.length) setSt("⚠ No autocomplete results — try a broader seed");
+    } catch (e) { setSt("⚠ " + e.message); }
+    setKwLd(false);
+  };
+
+  // Title scorer: heuristics against this niche's scanned outliers, plus AI rewrites
+  const heuristicScore = (t) => {
+    let s = 40; const len = t.length;
+    if (len >= 35 && len <= 65) s += 15; else if (len < 25 || len > 75) s -= 10;
+    if (/\d/.test(t)) s += 8;
+    if (/\?|how|why|what|secret|never|nobody|truth|real reason|hidden|banned|last/i.test(t)) s += 10;
+    if (/^(the|this|these)\b/i.test(t)) s += 3;
+    const words = new Set(t.toLowerCase().split(/\W+/).filter(w => w.length > 3));
+    const top = allRaw.slice(0, 30);
+    const overlap = top.length ? Math.max(...top.map(v => v.title.toLowerCase().split(/\W+/).filter(w => w.length > 3 && words.has(w)).length)) : 0;
+    s += Math.min(16, overlap * 4);
+    return Math.max(5, Math.min(96, Math.round(s)));
+  };
+  const scoreTitle = async () => {
+    const t = titleIn.trim(); if (!t) return;
+    setTitleScore(heuristicScore(t)); setTitleVars([]);
+    if (!clKey || !allRaw.length) return;
+    setScoring(true);
+    try {
+      const top = allRaw.slice(0, 10).map(v => `"${v.title}" (${fmt(v.views)})`).join("\n");
+      const raw = await ai(`You improve YouTube titles. Given a draft title and the niche's top performers, return ONLY a JSON array of 3 stronger title variants (under 70 chars, same topic, patterns that match what performs).`, `Draft: "${t}"\n\nTop performers in this niche:\n${top}`, clKey);
+      setTitleVars(JSON.parse(raw.replace(/```json|```/g, "").trim()));
+    } catch {}
+    setScoring(false);
   };
 
   const suggest = async () => {
@@ -497,6 +514,21 @@ function NichePg({ niche, niches, ytKey, clKey, sn, back, gen }) {
     <div className="yt-breadcrumb"><button className="yt-btn-o" onClick={back}>← Dashboard</button><h1 className="yt-page-title">{niche.name}</h1></div>
     {niche.desc&&<p className="yt-sub">{niche.desc}</p>}
     {allRaw.length>0&&<div className="yt-info-bar"><div className="yt-info-item"><span className="yt-info-num">{allRaw.length}</span>videos scanned</div><div className="yt-info-item"><span className="yt-info-num">{outs.length}</span>showing</div><div className="yt-info-item"><span className="yt-info-num">{chs.length}</span>channels</div><div className="yt-info-item"><span className="yt-info-num">{hist.length}</span>topics used</div></div>}
+    {deltas&&<div className="yt-card">
+      <div className="yt-card-ht">Since your last scan ({deltas.since})</div>
+      <div className="yt-grid2" style={{marginTop:12}}>
+        <div>
+          <div className="yt-opt-label" style={{marginBottom:8}}>New uploads</div>
+          {deltas.newVids.length===0&&<p className="yt-hint">None</p>}
+          {deltas.newVids.map(v=><div key={v.id} className="yt-delta-row"><span className="yt-delta-t">{v.title}</span><span className="yt-delta-m">{fmt(v.views)} · {v.channel}</span></div>)}
+        </div>
+        <div>
+          <div className="yt-opt-label" style={{marginBottom:8}}>Biggest movers</div>
+          {deltas.movers.length===0&&<p className="yt-hint">None</p>}
+          {deltas.movers.map(v=><div key={v.id} className="yt-delta-row"><span className="yt-delta-t">{v.title}</span><span className="yt-delta-m yt-delta-up">+{fmt(v.delta)} views · {v.channel}</span></div>)}
+        </div>
+      </div>
+    </div>}
 
     <div className="yt-card"><div className="yt-card-ht">Channels</div><p className="yt-hint">YouTube URL or @handle</p><div className="yt-input-row"><input className="yt-input" placeholder="@ChannelName or URL" value={ch} onChange={e=>setCh(e.target.value)} onKeyDown={e=>e.key==="Enter"&&addCh()}/><button className="yt-btn" onClick={addCh}>Add</button></div>{chs.length>0&&<div className="yt-chips">{chs.map((c,i)=><span key={i} className="yt-chip">{c}<button onClick={()=>rmCh(i)}>✕</button></span>)}</div>}</div>
 
@@ -542,446 +574,27 @@ function NichePg({ niche, niches, ytKey, clKey, sn, back, gen }) {
       </div>;})}</div>
     </div>}
 
-    <div className="yt-card"><div className="yt-card-ht">Custom Topic</div><div className="yt-input-row"><input className="yt-input" placeholder="Your own topic..." value={cust} onChange={e=>setCust(e.target.value)} onKeyDown={e=>e.key==="Enter"&&cust.trim()&&gen(cust.trim(),getVersionCount(cust.trim())+1)}/><button className="yt-btn" onClick={()=>cust.trim()&&gen(cust.trim(),getVersionCount(cust.trim())+1)} disabled={!cust.trim()}>Go →</button></div></div>
+    <div className="yt-card"><div className="yt-card-ht">Keyword ideas</div>
+      <p className="yt-hint">What people actually type into YouTube search around this niche.</p>
+      <div className="yt-input-row"><input className="yt-input" value={kwSeed} onChange={e=>setKwSeed(e.target.value)} onKeyDown={e=>e.key==="Enter"&&findKeywords()} placeholder="Seed keyword"/><button className={`yt-btn ${kwLd?'yt-btn-ld':''}`} onClick={findKeywords} disabled={kwLd}>{kwLd?"Searching…":"Find keywords"}</button></div>
+      {kwIdeas.length>0&&<div className="yt-opt-tags" style={{marginTop:12}}>{kwIdeas.map((k,i)=><span key={i} className="yt-opt-tag yt-kw-tag" onClick={()=>gen(k,getVersionCount(k)+1)} title="Open in Studio">{k} →</span>)}</div>}
+    </div>
+
+    <div className="yt-card"><div className="yt-card-ht">Title scorer</div>
+      <p className="yt-hint">Scored against the patterns of this niche's top performers{allRaw.length?"":" — scan channels first for niche-aware scoring"}.</p>
+      <div className="yt-input-row"><input className="yt-input" placeholder="Paste a working title…" value={titleIn} onChange={e=>setTitleIn(e.target.value)} onKeyDown={e=>e.key==="Enter"&&scoreTitle()}/><button className={`yt-btn ${scoring?'yt-btn-ld':''}`} onClick={scoreTitle} disabled={!titleIn.trim()}>Score</button></div>
+      {titleScore!==null&&<div className="yt-title-score">
+        <div className="yt-title-score-bar"><div className="yt-title-score-fill" style={{width:titleScore+"%",background:titleScore>=70?"var(--green)":titleScore>=45?"var(--amber)":"var(--red)"}}/></div>
+        <span className="yt-title-score-n">{titleScore}/100 · {titleIn.length} chars</span>
+      </div>}
+      {scoring&&<p className="yt-hint">Writing stronger variants…</p>}
+      {titleVars.length>0&&<div style={{marginTop:10}}>{titleVars.map((t,i)=><div key={i} className="yt-opt-title" onClick={()=>gen(t,getVersionCount(t)+1)} title="Open in Studio"><span className="yt-opt-num">{i+1}</span><span>{t}</span><span style={{marginLeft:"auto",color:"var(--text3)",fontSize:12}}>{heuristicScore(t)}/100 →</span></div>)}</div>}
+    </div>
+
+    <div className="yt-card"><div className="yt-card-ht">Custom topic</div><div className="yt-input-row"><input className="yt-input" placeholder="Your own topic…" value={cust} onChange={e=>setCust(e.target.value)} onKeyDown={e=>e.key==="Enter"&&cust.trim()&&gen(cust.trim(),getVersionCount(cust.trim())+1)}/><button className="yt-btn" onClick={()=>cust.trim()&&gen(cust.trim(),getVersionCount(cust.trim())+1)} disabled={!cust.trim()}>Open in Studio →</button></div></div>
   </div>);
 }
 
-function GenPg({ niche, topic, version, clKey, gemKey, addH, updateH, back, goStudio, savedPrompt, savedThumb, savedHistId, refThumb: initialRefThumb, savedThumbs, savedOptTitles, savedOptDesc, savedOptTags, savedThPrompt }) {
-  const [mode, setMode] = useState(savedPrompt ? "auto" : null);
-  const [sty, setSty] = useState("documentary"); const [dur, setDur] = useState("15");
-  const [prompt, setPrompt] = useState(savedPrompt || "");
-  const [thumb, setThumb] = useState(savedThumb || "");
-  const [optTitles, setOptTitles] = useState(savedOptTitles || []); const [optDesc, setOptDesc] = useState(savedOptDesc || ""); const [optTags, setOptTags] = useState(savedOptTags || []);
-  const [ld, setLd] = useState(false); const [ldO, setLdO] = useState(false);
-  const [tab, setTab] = useState(savedPrompt ? "prompt" : "prompt");
-  const [cp, setCp] = useState(""); const [saved, setSaved] = useState(!!savedPrompt);
-  const [histId, setHistId] = useState(savedHistId || null);
-  const [refThumb, setRefThumb] = useState(initialRefThumb || "");
-  // Thumbnail workflow state
-  const [thMode, setThMode] = useState(null); // null | "reference" | "scratch"
-  const [thRefImg, setThRefImg] = useState(initialRefThumb || ""); // reference image (URL or data URI)
-  const [thRefB64, setThRefB64] = useState(null); // {data, mime} for uploaded
-  const [thPrompt, setThPrompt] = useState(savedThPrompt || ""); // AI-generated or manual prompt for Nana Banana
-  const [thRefine, setThRefine] = useState(""); // user refinement instructions
-  const [thAnalyzing, setThAnalyzing] = useState(false);
-  const [thRefining, setThRefining] = useState(false);
-  const [thumbCount, setThumbCount] = useState("2");
-  const [thumbWithText, setThumbWithText] = useState(true);
-  const [thumbSendRef, setThumbSendRef] = useState(false);
-  const [thumbResults, setThumbResults] = useState(savedThumbs || []);
-  const [thumbLoading, setThumbLoading] = useState([]);
-  const [userRefs, setUserRefs] = useState([]);
-  const cc = prompt.length;
-
-  // Auto-save optimize + thPrompt to history (NOT thumb images — too large for localStorage)
-  useEffect(() => {
-    if (!histId || !saved) return;
-    if (optTitles.length > 0 || optDesc || thPrompt) {
-      updateH(niche.id, histId, { optTitles, optDesc, optTags, thPrompt });
-    }
-  }, [optTitles, optDesc, optTags, thPrompt]);
-
-  const handleThRefUpload = (e) => {
-    const file = e.target.files?.[0]; if(!file) return;
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      const full = ev.target.result;
-      const mime = file.type || 'image/jpeg';
-      const b64 = full.split(',')[1];
-      setThRefImg(full);
-      setThRefB64({ data: b64, mime });
-    };
-    reader.readAsDataURL(file);
-    e.target.value = '';
-  };
-
-  const handleRefFiles = (e) => {
-    const files = Array.from(e.target.files).slice(0, 5 - userRefs.length);
-    files.forEach(file => {
-      if (userRefs.length >= 5) return;
-      const reader = new FileReader();
-      reader.onload = (ev) => {
-        const full = ev.target.result;
-        const mime = file.type || 'image/jpeg';
-        const b64 = full.split(',')[1];
-        setUserRefs(prev => [...prev, { data: b64, mime, preview: full }]);
-      };
-      reader.readAsDataURL(file);
-    });
-    e.target.value = '';
-  };
-  const removeRef = (idx) => setUserRefs(prev => prev.filter((_,i) => i !== idx));
-
-  // Analyze reference image → generate Nana Banana prompt via Claude
-  const analyzeReference = async () => {
-    if(!clKey) return;
-    setThAnalyzing(true);
-    const SYS_NANA = `Write a prompt to generate an image that looks as close as possible to the reference photo.
-
-Describe EXACTLY what you see in the image in extreme detail:
-- Every object, person, element — what it is, where it is, how big, what color
-- Camera angle, perspective, framing
-- Lighting — direction, intensity, color temperature, shadows
-- Colors — exact tones, contrast, saturation
-- Textures, materials, surfaces
-- Background, foreground, depth
-- Mood, atmosphere
-
-Write ONE dense paragraph (150-250 words). Start with "Generate a photorealistic wide image (16:9 aspect ratio, 1280x720)."
-
-Be extremely precise — the goal is to recreate this image as closely as possible. Describe what you SEE, not what you interpret.
-
-End with: "no text on the image."
-
-After the prompt, on a NEW line write:
-TEXT OVERLAY: suggest what text to overlay in Canva (content, font style, color, placement).
-
-English only. No markdown.`;
-
-    try {
-      let result;
-      const userMsg = `Write a prompt to generate an image maximally similar to this reference. Describe exactly what you see.`;
-      if (thRefB64) {
-        result = await aiVision(SYS_NANA, userMsg, thRefB64, clKey);
-      } else if (thRefImg) {
-        result = await aiVision(SYS_NANA, userMsg, thRefImg, clKey);
-      }
-      if (result) setThPrompt(result.replace(/```/g,"").trim());
-    } catch(e) { setThPrompt("❌ Error: " + e.message); }
-    setThAnalyzing(false);
-  };
-
-  // Refine existing prompt with user instructions
-  const refinePrompt = async () => {
-    if(!clKey || !thRefine.trim()) return;
-    setThRefining(true);
-    const SYS_REFINE = `You are a thumbnail prompt editor. You receive an existing Nana Banana / Midjourney prompt and user's edit instructions. Apply the edits and return the UPDATED prompt. Keep the same format — one dense paragraph, 80-150 words, ending with style instructions. Return ONLY the updated prompt text, nothing else.`;
-    try {
-      const result = await ai(SYS_REFINE, `CURRENT PROMPT:\n${thPrompt}\n\nUSER EDITS:\n${thRefine}`, clKey);
-      setThPrompt(result.replace(/```/g,"").trim());
-      setThRefine("");
-    } catch(e) { /* ignore */ }
-    setThRefining(false);
-  };
-
-  const runOptimize = async () => {
-    if(!clKey) return; setLdO(true);
-    try {
-      const [tRaw, dRaw, gRaw] = await Promise.all([
-        ai(SYS_OPT_TITLES, `Topic: "${topic}"\nNiche: ${niche.name}`, clKey),
-        ai(SYS_OPT_DESC, `Topic: "${topic}"\nNiche: ${niche.name}\nStyle: ${sty}`, clKey),
-        ai(SYS_OPT_TAGS, `Topic: "${topic}"\nNiche: ${niche.name}`, clKey),
-      ]);
-      try { setOptTitles(JSON.parse(tRaw.replace(/```json|```/g,"").trim())); } catch { setOptTitles([tRaw]); }
-      setOptDesc(dRaw.replace(/```/g,"").trim());
-      try { setOptTags(JSON.parse(gRaw.replace(/```json|```/g,"").trim())); } catch { setOptTags([gRaw]); }
-    } catch(e) { setOptDesc("❌ "+e.message); }
-    setLdO(false);
-  };
-
-  // Get used items from all previous versions of same topic
-  const getUsedItems = () => {
-    const hist = niche.history || [];
-    return hist.filter(h => h.topic.toLowerCase() === topic.toLowerCase() && h.usedItems?.length).flatMap(h => h.usedItems);
-  };
-
-  const go = async () => {
-    if(!clKey){setPrompt("⚠ Set Anthropic API Key!");return;} setLd(true); setPrompt(""); setTab("prompt");
-    let extra = "";
-    const usedItems = getUsedItems();
-    if(version > 1) { extra = `\n\nIMPORTANT: This is VERSION ${version} of this topic. Previous versions already covered this topic. You MUST use COMPLETELY DIFFERENT specific items, examples, facts, and angles than would be typical. Find obscure, lesser-known, surprising entries that a hardcore fan hasn't seen before. Do NOT repeat the obvious choices.`; }
-    if(usedItems.length > 0) { extra += `\n\n⛔ ALREADY USED IN PREVIOUS VERSIONS — DO NOT REPEAT ANY OF THESE:\n${usedItems.join(", ")}\n\nYou MUST pick DIFFERENT items that are NOT in this list.`; }
-    try {
-      const r = await ai(SYS_P(mode), `Topic: ${topic}\nNiche: ${niche.name}\nDuration: ${dur} min\nStyle: ${sty==="documentary"?"Documentary (NO numbered lists)":"Top 10 listicle"}\n\nSTRICT LIMIT: Stay under 9,000 characters total. Be detailed but concise — no filler, no repetition.${extra}`, clKey);
-      setPrompt(r); setLd(false);
-      let newHistId = histId;
-      if(!saved){
-        newHistId = addH(niche.id, topic, version, r, "");
-        setHistId(newHistId); setSaved(true);
-      } else if(histId) {
-        updateH(niche.id, histId, { prompt: r });
-      }
-      // Extract items in background — don't block UI
-      ai(`Extract the main items/subjects/entries from this script prompt. Return ONLY a JSON array of short names. Example: ["Aloe Vera","Lavender","Turmeric"]. No markdown, ONLY the JSON array.`, r, clKey)
-        .then(raw => { try { const items = JSON.parse(raw.replace(/```json|```/g,"").trim()); if(items.length) updateH(niche.id, newHistId, { usedItems: items }); } catch {} })
-        .catch(() => {});
-    } catch(e){setPrompt("❌ "+e.message); setLd(false);}
-    if(!optDesc) runOptimize();
-  };
-
-  const generateThumb = async (idx) => {
-    if(!gemKey) return;
-    setThumbLoading(prev => { const n=[...prev]; n[idx]=true; return n; });
-    const textInstr = thumbWithText ? 'Include bold, eye-catching text/title overlay on the thumbnail exactly as described in the prompt.' : 'IMPORTANT: Do NOT add any text on the image. Purely visual, no text overlays.';
-    const userP = thPrompt.trim() || topic;
-    const variation = idx === 0 ? '' : ` Create variation ${idx+1} — same style but slightly different angle/composition.`;
-    const promptText = `Generate a PHOTOREALISTIC YouTube video thumbnail, 16:9 aspect ratio. The image must look like a REAL photograph taken by a professional photographer — NOT AI-generated. Real skin textures, real materials, real lighting. FOLLOW THIS PROMPT EXACTLY: ${userP}. ${textInstr}${variation}`;
-    const parts = [{ text: promptText }];
-    // Attach reference image if checkbox enabled
-    if (thumbSendRef && thMode === "reference") {
-      if (thRefB64) {
-        parts.push({ inline_data: { mime_type: thRefB64.mime, data: thRefB64.data } });
-      } else if (thRefImg) {
-        try {
-          const resp = await fetch(thRefImg);
-          const blob = await resp.blob();
-          const b64 = await new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result.split(',')[1]); r.onerror = rej; r.readAsDataURL(blob); });
-          parts.push({ inline_data: { mime_type: blob.type || 'image/jpeg', data: b64 } });
-        } catch {}
-      }
-    }
-    userRefs.forEach(ref => { parts.push({ inline_data: { mime_type: ref.mime, data: ref.data } }); });
-    const body = {
-      contents: [{ parts }],
-      generationConfig: { responseModalities: ['IMAGE', 'TEXT'], imageConfig: { aspectRatio: '16:9' } }
-    };
-    try {
-      let resp;
-      for (let attempt = 1; attempt <= 3; attempt++) {
-        resp = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-image-preview:generateContent?key=${gemKey}`, {
-          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
-        });
-        if ((resp.status === 500 || resp.status === 503) && attempt < 3) { await new Promise(r=>setTimeout(r,attempt*2000)); continue; }
-        break;
-      }
-      if (!resp.ok) { const err = await resp.json().catch(()=>({})); throw new Error(err.error?.message || `HTTP ${resp.status}`); }
-      const data = await resp.json();
-      let b64 = null;
-      for (const part of (data.candidates?.[0]?.content?.parts || [])) { if (part.inlineData) { b64 = part.inlineData.data; break; } }
-      if (!b64) throw new Error('No image in response');
-      setThumbResults(prev => { const n=[...prev]; n[idx]={ url: `data:image/png;base64,${b64}`, prompt: promptText }; return n; });
-    } catch(e) {
-      setThumbResults(prev => { const n=[...prev]; n[idx]={ error: e.message }; return n; });
-    }
-    setThumbLoading(prev => { const n=[...prev]; n[idx]=false; return n; });
-  };
-
-  const [thumbGenerating, setThumbGenerating] = useState(false);
-
-  const generateAllThumbs = () => {
-    if(!gemKey) return;
-    const count = parseInt(thumbCount);
-    const startIdx = thumbResults.length;
-    // Append new placeholders at the END
-    setThumbResults(prev => [...prev, ...Array(count).fill(null)]);
-    setThumbLoading(prev => [...prev, ...Array(count).fill(true)]);
-    setTab("thumbnail");
-    // Fire all in parallel — no blocking
-    for (let i = 0; i < count; i++) {
-      generateThumb(startIdx + i);
-    }
-  };
-
-  const copy = (t, label) => { navigator.clipboard.writeText(t); setCp(label); setTimeout(()=>setCp(""),2e3); };
-
-  if(!mode) return (<div className="yt-page">
-    <div className="yt-breadcrumb"><button className="yt-btn-o" onClick={back}>← {niche.name}</button><h1 className="yt-page-title">Mode</h1></div>
-    <div className="yt-topic-banner">{topic}{version>1&&<span className="yt-version-big">V{version}</span>}</div>
-    {refThumb && <div className="yt-ref-preview"><img src={refThumb} alt="Reference" className="yt-ref-img"/><span className="yt-ref-label">Reference thumbnail attached</span><button className="yt-ref-rm" onClick={()=>setRefThumb("")}>✕</button></div>}
-    <div className="yt-mode-grid">
-      <button className="yt-mode auto" onClick={()=>setMode("auto")}><div className="yt-mode-ic"></div><div className="yt-mode-n">AUTO</div><div className="yt-mode-d">Prompt ready to paste</div><span className="yt-mode-b">SPEED</span></button>
-      <button className="yt-mode manual" onClick={()=>setMode("manual")}><div className="yt-mode-ic"></div><div className="yt-mode-n">MANUAL</div><div className="yt-mode-d">Prompt + Q&A + refs</div><span className="yt-mode-b yt-mode-b2">CONTROL</span></button>
-    </div>
-  </div>);
-
-  return (<div className="yt-page">
-    <div className="yt-breadcrumb"><button className="yt-btn-o" onClick={()=>setMode(null)}>← Mode</button><h1 className="yt-page-title">Generate</h1><span className={`yt-mtag ${mode}`}>{mode.toUpperCase()}</span>{version>1&&<span className="yt-version-big">V{version}</span>}</div>
-    <div className="yt-topic-banner">{topic}{version>1&&<span className="yt-version-big">V{version} — fresh content</span>}</div>
-    {getUsedItems().length > 0 && <div className="yt-used-items"><span className="yt-used-items-label">Already used ({getUsedItems().length}):</span><span className="yt-used-items-list">{getUsedItems().join(", ")}</span></div>}
-    <div className="yt-gen-ctrl">
-      <div><label className="yt-label">Duration</label><select className="yt-sel" value={dur} onChange={e=>setDur(e.target.value)}><option value="8">6–8 min</option><option value="12">10–12 min</option><option value="15">13–15 min</option><option value="20">18–20 min</option><option value="30">25–30 min</option></select></div>
-      <div><label className="yt-label">Style</label><select className="yt-sel" value={sty} onChange={e=>setSty(e.target.value)}><option value="documentary">Documentary</option><option value="top10">Top 10</option></select></div>
-      <div className="yt-gen-btns">
-        <button className={`yt-btn-gen ${ld?'yt-btn-ld':''}`} onClick={go} disabled={ld}>{ld?"Generating...":"Generate Prompt"}</button>
-        <button className="yt-btn-studio" onClick={()=>goStudio({topic,version,histId,prompt})} title="Full pipeline: script → storyboard → visuals → voiceover → MP4 + SEO package">Storyboard Studio →</button>
-      </div>
-    </div>
-    {ld&&<div className="yt-ld-box"><div className="yt-spin"/><p>Building detailed prompt...</p></div>}
-    {(prompt||optTitles.length>0||optDesc||thumbResults.length>0)&&<>
-      <div className="yt-tabs">
-        <button className={`yt-tab ${tab==="prompt"?'active':''}`} onClick={()=>setTab("prompt")}>Prompt{prompt?` (${cc.toLocaleString()})`:""}</button>
-        <button className={`yt-tab ${tab==="optimize"?'active':''}`} onClick={()=>setTab("optimize")}>Optimize{ldO?" …":optTitles.length?" ✓":""}</button>
-        <button className={`yt-tab ${tab==="thumbnail"?'active':''}`} onClick={()=>setTab("thumbnail")}>Thumbnail{thumbResults.length?` (${thumbResults.filter(r=>r?.url).length})`:""}</button>
-      </div>
-      <div className="yt-out-panel">
-        {tab==="prompt"&&<>
-          <div className="yt-out-h"><span className={`yt-cc ${cc>10000?'over':''}`}>{cc.toLocaleString()}/10,000{cc>10000?" ⚠":" ✓"}</span><button className="yt-btn-cp" onClick={()=>copy(prompt,"prompt")}>{cp==="prompt"?"✅ Copied!":"Copy"}</button></div>
-          <pre className="yt-pre">{prompt}</pre>
-        </>}
-        {tab==="optimize"&&<>
-          {ldO&&<div className="yt-ld-box"><div className="yt-spin"/><p>Generating SEO...</p></div>}
-          {optTitles.length>0&&<div className="yt-opt-section">
-            <div className="yt-opt-h"><span className="yt-opt-label">Titles</span><button className="yt-btn-cp-sm" onClick={()=>copy(optTitles.join("\n"),"titles")}>{cp==="titles"?"✅":"Copy"}</button></div>
-            {optTitles.map((t,i)=><div key={i} className="yt-opt-title" onClick={()=>copy(t,"t"+i)}>
-              <span className="yt-opt-num">{i+1}</span><span>{t}</span>{cp===("t"+i)&&<span className="yt-opt-copied">✅</span>}
-            </div>)}
-          </div>}
-          {optDesc&&<div className="yt-opt-section">
-            <div className="yt-opt-h"><span className="yt-opt-label">Descriptions ({optDesc.split('---').filter(d=>d.trim()).length} variants)</span></div>
-            {optDesc.split('---').filter(d=>d.trim()).map((d,i)=><div key={i} className="yt-opt-desc-card">
-              <div className="yt-opt-desc-head"><span className="yt-opt-num">{i+1}</span><span className="yt-opt-desc-tone">{["🔮 Curiosity","📚 Educational","💥 Clickbait"][i]||`#${i+1}`}</span><button className="yt-btn-cp-sm" onClick={()=>copy(d.trim(),"desc"+i)}>{cp===("desc"+i)?"✅":"Copy"}</button></div>
-              <pre className="yt-pre yt-pre-sm">{d.trim()}</pre>
-            </div>)}
-          </div>}
-          {optTags.length>0&&<div className="yt-opt-section">
-            <div className="yt-opt-h"><span className="yt-opt-label">Tags</span><button className="yt-btn-cp-sm" onClick={()=>copy(optTags.join(", "),"tags")}>{cp==="tags"?"✅":"Copy"}</button></div>
-            <div className="yt-opt-tags">{optTags.map((t,i)=><span key={i} className="yt-opt-tag" onClick={()=>copy(t,"tag"+i)}>{t}</span>)}</div>
-          </div>}
-          {!ldO&&!optTitles.length&&!optDesc&&<button className="yt-btn-big yt-btn-big-suggest" onClick={runOptimize}>Generate SEO</button>}
-        </>}
-        {tab==="thumbnail"&&<>
-          {/* Step 1: Choose mode */}
-          {!thMode && <div className="yt-th-choose">
-            <p className="yt-th-choose-label">How do you want to create the thumbnail?</p>
-            <div className="yt-th-choose-grid">
-              <button className="yt-th-choose-btn" onClick={()=>{setThMode("reference"); if(initialRefThumb && !thRefImg) setThRefImg(initialRefThumb);}}>
-                <span className="yt-th-choose-ic"></span>
-                <span className="yt-th-choose-n">From Reference</span>
-                <span className="yt-th-choose-d">Upload a photo or use outlier thumbnail → AI writes prompt</span>
-                {initialRefThumb && <span className="yt-th-choose-tag">Outlier thumbnail available</span>}
-              </button>
-              <button className="yt-th-choose-btn" onClick={()=>setThMode("scratch")}>
-                <span className="yt-th-choose-ic"></span>
-                <span className="yt-th-choose-n">From Scratch</span>
-                <span className="yt-th-choose-d">Write your own prompt or let AI generate one for the topic</span>
-              </button>
-            </div>
-          </div>}
-
-          {/* Step 2: Reference mode — upload/show image + analyze */}
-          {thMode === "reference" && <>
-            <div className="yt-th-ref-section">
-              <div className="yt-th-ref-top">
-                <button className="yt-btn-o" onClick={()=>{setThMode(null);setThPrompt("");}} style={{marginBottom:12}}>← Change mode</button>
-              </div>
-              <div className="yt-th-ref-layout">
-                <div className="yt-th-ref-img-col">
-                  <label className="yt-label">Reference Image</label>
-                  {thRefImg ? (
-                    <div className="yt-th-ref-preview">
-                      <img src={thRefImg} alt="Reference" className="yt-th-ref-big"/>
-                      <div className="yt-th-ref-overlay">
-                        <button className="yt-th-ref-change" onClick={()=>{setThRefImg("");setThRefB64(null);setThPrompt("");}}>Change</button>
-                        <label className="yt-th-ref-change">
-                          <input type="file" accept="image/*" onChange={handleThRefUpload} style={{display:'none'}}/>
-                          Upload New
-                        </label>
-                      </div>
-                    </div>
-                  ) : (
-                    <label className="yt-th-ref-drop-big">
-                      <input type="file" accept="image/*" onChange={handleThRefUpload} style={{display:'none'}}/>
-                      <span className="yt-th-ref-drop-ic"></span>
-                      <span className="yt-th-ref-drop-t">Drop reference photo here</span>
-                      <span className="yt-th-ref-drop-d">or click to upload</span>
-                    </label>
-                  )}
-                </div>
-                <div className="yt-th-prompt-col">
-                  <div className="yt-th-prompt-header">
-                    <label className="yt-label">Nana Banana Prompt</label>
-                    {thRefImg && !thPrompt && <button className={`yt-btn ${thAnalyzing?'yt-btn-ld':''}`} onClick={analyzeReference} disabled={thAnalyzing}>{thAnalyzing?"Analyzing...":"Analyze & Write Prompt"}</button>}
-                  </div>
-                  {thAnalyzing && <div className="yt-ld-box"><div className="yt-spin"/><p>Claude analyzing reference...</p></div>}
-                  {thPrompt && <>
-                    <textarea className="yt-input yt-th-prompt-area" rows="8" value={thPrompt} onChange={e=>setThPrompt(e.target.value)} placeholder="AI-generated prompt will appear here..."/>
-                    <div className="yt-th-prompt-actions">
-                      <button className="yt-btn-cp" onClick={()=>copy(thPrompt,"thprompt")}>{cp==="thprompt"?"✅ Copied!":"Copy Prompt"}</button>
-                    </div>
-                    {/* Refine section */}
-                    <div className="yt-th-refine">
-                      <label className="yt-label">Refine Prompt</label>
-                      <div className="yt-th-refine-row">
-                        <textarea className="yt-input yt-th-refine-input" rows="2" value={thRefine} onChange={e=>setThRefine(e.target.value)} placeholder="e.g. Add bold yellow title 'THIS CHANGES EVERYTHING', replace fruit with vegetable, make background darker..." onKeyDown={e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();refinePrompt();}}}/>
-                        <button className={`yt-btn-refine ${thRefining?'yt-btn-ld':''}`} onClick={refinePrompt} disabled={thRefining||!thRefine.trim()}>{thRefining?"…":"Refine"}</button>
-                      </div>
-                    </div>
-                  </>}
-                </div>
-              </div>
-            </div>
-          </>}
-
-          {/* Step 2b: From Scratch mode */}
-          {thMode === "scratch" && <>
-            <div className="yt-th-ref-section">
-              <div className="yt-th-ref-top">
-                <button className="yt-btn-o" onClick={()=>{setThMode(null);setThPrompt("");}} style={{marginBottom:12}}>← Change mode</button>
-              </div>
-              <div className="yt-th-scratch-layout">
-                <div className="yt-th-prompt-col" style={{flex:1}}>
-                  <div className="yt-th-prompt-header">
-                    <label className="yt-label">Thumbnail Prompt</label>
-                    {!thPrompt && <button className={`yt-btn ${thAnalyzing?'yt-btn-ld':''}`} onClick={async()=>{
-                      setThAnalyzing(true);
-                      try{
-                        const r = await ai(`You are a YouTube thumbnail prompt engineer. Write a SINGLE dense paragraph (80-150 words) prompt for an AI image generator (Midjourney/Nana Banana) for the given topic. The prompt must describe: composition, subject, lighting, colors, mood, and end with "hyperrealistic cinematic photography, 16:9 aspect ratio". Make it CLICKBAIT and eye-catching. Return ONLY the prompt.`, `Topic: "${topic}"\nNiche: ${niche.name}`, clKey);
-                        setThPrompt(r.replace(/```/g,"").trim());
-                      }catch(e){setThPrompt("❌ "+e.message);}
-                      setThAnalyzing(false);
-                    }} disabled={thAnalyzing}>{thAnalyzing?"Generating...":"Auto-Generate Prompt"}</button>}
-                  </div>
-                  {thAnalyzing && <div className="yt-ld-box"><div className="yt-spin"/><p>Writing thumbnail prompt...</p></div>}
-                  <textarea className="yt-input yt-th-prompt-area" rows="6" value={thPrompt} onChange={e=>setThPrompt(e.target.value)} placeholder={`Write your Nana Banana / Midjourney prompt here...\n\nExample: Close-up of a person's shocked face looking at a glowing ancient plant, dramatic golden backlighting, deep shadows...`}/>
-                  {thPrompt && <>
-                    <div className="yt-th-prompt-actions">
-                      <button className="yt-btn-cp" onClick={()=>copy(thPrompt,"thprompt")}>{cp==="thprompt"?"✅ Copied!":"Copy Prompt"}</button>
-                    </div>
-                    <div className="yt-th-refine">
-                      <label className="yt-label">Refine Prompt</label>
-                      <div className="yt-th-refine-row">
-                        <textarea className="yt-input yt-th-refine-input" rows="2" value={thRefine} onChange={e=>setThRefine(e.target.value)} placeholder="e.g. Make it more dramatic, add a person, change colors to blue..." onKeyDown={e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();refinePrompt();}}}/>
-                        <button className={`yt-btn-refine ${thRefining?'yt-btn-ld':''}`} onClick={refinePrompt} disabled={thRefining||!thRefine.trim()}>{thRefining?"…":"Refine"}</button>
-                      </div>
-                    </div>
-                  </>}
-                </div>
-                <div className="yt-th-scratch-refs">
-                  <label className="yt-label">Extra Reference Photos (optional)</label>
-                  <label className="yt-thumb-drop">
-                    <input type="file" accept="image/*" multiple onChange={handleRefFiles} style={{display:'none'}}/>
-                    Add reference photos
-                  </label>
-                  {userRefs.length>0 && <div className="yt-thumb-ref-list">{userRefs.map((ref,i)=><div key={i} className="yt-thumb-ref-card"><img src={ref.preview} className="yt-thumb-ref-img" alt=""/><button className="yt-thumb-ref-rm" onClick={()=>removeRef(i)}>✕</button></div>)}</div>}
-                </div>
-              </div>
-            </div>
-          </>}
-
-          {/* Step 3: Generate section — visible in both modes when prompt exists */}
-          {thMode && thPrompt && <>
-            <div className="yt-th-gen-bar">
-              <div className="yt-thumb-options">
-                <div><label className="yt-label">Count</label><select className="yt-sel" value={thumbCount} onChange={e=>setThumbCount(e.target.value)}><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option></select></div>
-                <label className="yt-thumb-check"><input type="checkbox" checked={thumbWithText} onChange={e=>setThumbWithText(e.target.checked)}/><span>With text</span></label>
-                {thMode === "reference" && thRefImg && <label className="yt-thumb-check"><input type="checkbox" checked={thumbSendRef} onChange={e=>setThumbSendRef(e.target.checked)}/><span>Send reference</span></label>}
-              </div>
-              <button className="yt-btn-big" onClick={generateAllThumbs} disabled={!gemKey} style={{marginTop:12}}>{!gemKey?"⚠ Add Gemini Key":"Generate Thumbnails"}</button>
-            </div>
-          </>}
-
-          {/* Results grid */}
-          {thumbResults.length>0&&<>
-            <div className="yt-thumb-grid-header"><span className="yt-opt-label">Results ({thumbResults.filter(r=>r?.url).length}/{thumbResults.length})</span>{thumbResults.some(r=>r?.url)&&<button className="yt-btn-cp-sm" onClick={()=>{setThumbResults([]);setThumbLoading([]);}}>Clear All</button>}</div>
-            <div className="yt-thumb-grid">
-              {[...thumbResults].reverse().map((r,ri)=>{ const i=thumbResults.length-1-ri; return <div key={i} className="yt-thumb-item">
-                {thumbLoading[i]&&!r?.url&&!r?.error&&<div className="yt-thumb-loader"><div className="yt-spin"/><p>Generating #{i+1}...</p></div>}
-                {r?.url&&<><img src={r.url} className="yt-thumb-result-img" alt="" onClick={()=>window.open(r.url)}/>
-                  <div className="yt-thumb-actions">
-                    <a href={r.url} download={`thumb_${topic.replace(/\s+/g,'_')}_${i+1}.png`} className="yt-thumb-dl">Download</a>
-                    <button className="yt-thumb-regen" onClick={()=>{navigator.clipboard.writeText(r.prompt||"");setCp("tp"+i);setTimeout(()=>setCp(""),2e3);}}>{cp===("tp"+i)?"✅ Copied":"Prompt"}</button>
-                    <button className="yt-thumb-regen" onClick={()=>generateThumb(i)}>{thumbLoading[i]?"…":"Regen"}</button>
-                  </div>
-                </>}
-                {r?.error&&<div className="yt-thumb-error">❌ {r.error}<button className="yt-thumb-regen" onClick={()=>generateThumb(i)} style={{marginTop:8,display:'block',width:'100%'}}>Retry</button></div>}
-              </div>; })}
-            </div>
-          </>}
-        </>}
-      </div>
-    </>}
-  </div>);
-}
 
 const CSS = `
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
@@ -1291,6 +904,18 @@ button{font-family:var(--font)}
 .yt-thumb-regen{background:var(--bg);border:1px solid var(--border2);border-radius:var(--radius3);padding:5px 11px;color:var(--text2);font-size:12px;cursor:pointer}
 .yt-thumb-regen:hover{background:var(--surface);color:var(--text)}
 .yt-thumb-error{padding:16px;font-size:12.5px;color:var(--red2);background:var(--red-bg)}
+
+/* ---------- research extras ---------- */
+.yt-delta-row{display:flex;flex-direction:column;gap:1px;padding:7px 10px;border:1px solid var(--border);border-radius:var(--radius3);margin-bottom:6px;background:var(--bg)}
+.yt-delta-t{font-size:12.5px;font-weight:600;line-height:1.35;display:-webkit-box;-webkit-line-clamp:1;-webkit-box-orient:vertical;overflow:hidden}
+.yt-delta-m{font-size:11px;color:var(--text3)}
+.yt-delta-up{color:var(--green);font-weight:600}
+.yt-kw-tag{cursor:pointer}
+.yt-kw-tag:hover{border-color:var(--blue);color:var(--blue)}
+.yt-title-score{display:flex;align-items:center;gap:12px;margin-top:12px}
+.yt-title-score-bar{flex:1;height:8px;background:var(--surface2);border-radius:4px;overflow:hidden}
+.yt-title-score-fill{height:100%;border-radius:4px;transition:width .6s cubic-bezier(.16,1,.3,1)}
+.yt-title-score-n{font-size:12px;font-weight:600;color:var(--text2);white-space:nowrap}
 
 /* ---------- seo board ---------- */
 .yt-seo-board{display:flex;flex-direction:column}
