@@ -194,6 +194,25 @@ export async function geminiTTS(text, voice, key) {
   return { pcm: new Int16Array(bytes.buffer, 0, Math.floor(bytes.length / 2)), rate };
 }
 
+// Multi-image vision call — used to understand a reference video's keyframes.
+export async function claudeVisionMulti(system, text, imageDataUrls, key, { maxTokens = 8000 } = {}) {
+  const blocks = imageDataUrls.map(u => ({
+    type: "image",
+    source: { type: "base64", media_type: u.slice(5, u.indexOf(";")) || "image/jpeg", data: u.split(",")[1] },
+  }));
+  let lastErr = "Claude vision call failed";
+  for (const model of CLAUDE_MODELS) {
+    try {
+      return await claudeCall({ model, max_tokens: maxTokens, system, messages: [{ role: "user", content: [...blocks, { type: "text", text }] }] }, key);
+    } catch (e) {
+      lastErr = e.message;
+      if (/model/i.test(lastErr) && model !== CLAUDE_MODELS[CLAUDE_MODELS.length - 1]) continue;
+      throw e;
+    }
+  }
+  throw new Error(lastErr);
+}
+
 // ---------- Groq Whisper: word-level timestamps for any voiceover ----------
 export async function groqTranscribe(wavBlob, key) {
   const fd = new FormData();
@@ -208,6 +227,38 @@ export async function groqTranscribe(wavBlob, key) {
   if (!r.ok) throw new Error(d.error?.message || `Groq ${r.status}`);
   const words = (d.words || []).map(w => ({ word: w.word, start: +w.start, end: +w.end }));
   return words.length ? words : null;
+}
+
+// Segment-level transcription (for long reference videos — much lighter than word granularity).
+export async function groqTranscribeSegments(wavBlob, key) {
+  const fd = new FormData();
+  fd.append("file", wavBlob, "reference.wav");
+  fd.append("model", "whisper-large-v3-turbo");
+  fd.append("response_format", "verbose_json");
+  const r = await fetch("https://api.groq.com/openai/v1/audio/transcriptions", {
+    method: "POST", headers: { Authorization: `Bearer ${key}` }, body: fd,
+  });
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(d.error?.message || `Groq ${r.status}`);
+  return { text: d.text || "", segments: (d.segments || []).map(s => ({ start: +s.start, end: +s.end, text: s.text })) };
+}
+
+// Decode a media file's audio track → mono 16kHz WAV blob (capped for API size limits).
+export async function extractAudioWav16k(file, maxSeconds = 840) {
+  const ab = await file.arrayBuffer();
+  const probe = new (window.AudioContext || window.webkitAudioContext)();
+  const decoded = await probe.decodeAudioData(ab);
+  probe.close().catch(() => {});
+  const rate = 16000;
+  const dur = Math.min(decoded.duration, maxSeconds);
+  const off = new OfflineAudioContext(1, Math.ceil(dur * rate), rate);
+  const src = off.createBufferSource();
+  src.buffer = decoded; src.connect(off.destination); src.start();
+  const out = await off.startRendering();
+  const f32 = out.getChannelData(0);
+  const pcm = new Int16Array(f32.length);
+  for (let i = 0; i < f32.length; i++) pcm[i] = Math.max(-32768, Math.min(32767, Math.round(f32[i] * 32767)));
+  return { wav: pcmToWav(pcm, rate), truncated: decoded.duration > maxSeconds, duration: decoded.duration };
 }
 
 export function concatPcm(list) {

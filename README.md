@@ -12,6 +12,14 @@ Clean, quiet interface: light theme, left-sidebar navigation (Home / Niche finde
 - Shows outlier videos (views ≫ channel subs) and **breakout channels**.
 - **Save niche** or **Research this niche →** — saving auto-seeds the breakout channels as competitors, and Research picks up from there: scan → topics → brief → Studio. One unbroken flow from "does this niche work?" to a finished video.
 
+**Learn from a video (vision)**
+- Drop any video file: the app detects every cut frame by frame, extracts a keyframe per shot, transcribes the audio (Groq), and Claude reverse-engineers the structure — hook technique, phase order (real footage → commentary over b-roll → graphics), cut pacing, visual mix, narration devices.
+- Saved as a **template**: pick it in the Studio toolbar and the script, storyboard pacing, and per-shot source types follow it — shots in "real footage" phases are auto-sourced from stock providers instead of generated.
+
+**Self-learning memory**
+- Every meaningful action is logged per niche: script and narration edits (before/after), redone frames, voice/style/template choices, rendered videos, shipped SEO.
+- After renders and SEO packages, a background reflection distills the log into a compact preferences note that is injected into every future brief, script, storyboard, and SEO prompt — the app gets sharper with every video. Review, edit, or wipe the memory in Settings.
+
 **Research**
 1. Create a niche, add competitor channels, scan their uploads via the YouTube Data API.
 2. Outlier ranking (views vs channel average) + AI topic suggestions from real competitor data.

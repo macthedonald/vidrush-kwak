@@ -11,6 +11,7 @@ import { SeoView } from "./seoview";
 import { usePopIn } from "./anim";
 import { idbSet, idbGet, idbDel, idbDelPrefix } from "./store";
 import ThumbLab from "./thumblab";
+import { recordEvent, lessonsNote, reflect } from "./memory";
 
 const STEPS = ["Script", "Storyboard", "Visuals", "Voiceover", "Render", "Thumbnail", "SEO Package"];
 const STYLES = [
@@ -51,6 +52,10 @@ export default function Studio({ niche, ctx, clKey, gemKey, gathosKey, gathosVid
   const [musicPrompt, setMusicPrompt] = useState("");
   const [musicProg, setMusicProg] = useState(-1);
   const [thumbState, setThumbState] = useState({});
+  const [tplId, setTplId] = useState(null);
+  const templates = ls("vr8-templates", []);
+  const tpl = templates.find(t => t.id === tplId) || null;
+  const focusRef = useRef("");
   const panelRef = usePopIn([step]);
   const cancelRef = useRef(false);
   const vertical = format === "9:16";
@@ -66,6 +71,7 @@ export default function Studio({ niche, ctx, clKey, gemKey, gathosKey, gathosVid
         if (!live) return;
         setScript(saved.script || ""); setStyle(saved.style || "cinematic"); setDur(saved.dur || "5");
         setFormat(saved.format || "16:9"); setSeo(saved.seo || null);
+        if (saved.tplId) setTplId(saved.tplId);
         if (saved.brief) setBrief(saved.brief);
         if (saved.thumbState) setThumbState(t => ({ ...saved.thumbState, ...t }));
         baseScenes = (saved.scenes || []).map(s => ({ ...s, img: null, video: null }));
@@ -105,12 +111,12 @@ export default function Studio({ niche, ctx, clKey, gemKey, gathosKey, gathosVid
   const persist = (patch = {}) => {
     const strip = arr => arr.map(({ img, video, imgErr, imgLoading, ...rest }) => rest);
     const { thumbs, ...thumbLite } = thumbState;
-    const cur = { script, style, dur, format, seo, brief, thumbState: thumbLite, scenes: strip(scenes), ...patch };
+    const cur = { script, style, dur, format, seo, brief, tplId, thumbState: thumbLite, scenes: strip(scenes), ...patch };
     if (patch.scenes) cur.scenes = strip(patch.scenes);
     ss(storeKey, cur);
   };
   const clearSegsIdb = () => { for (let si = 0; si < 40; si++) idbDel(mk(`seg:${si}`)); };
-  const pickVoice = v => { setVoiceSel(v); ss("vr7-voice", v); setVoiceModal(false); setAudioSegs([]); clearSegsIdb(); };
+  const pickVoice = v => { setVoiceSel(v); ss("vr7-voice", v); setVoiceModal(false); setAudioSegs([]); clearSegsIdb(); recordEvent(niche.id, "voice_selected", { voice: v.name, provider: v.provider }); };
 
   // Sections = consecutive scenes sharing a section name; voiced per section for prosody,
   // then timing distributed across the 3-5s shots (word timestamps when the provider returns them).
@@ -166,6 +172,10 @@ export default function Studio({ niche, ctx, clKey, gemKey, gathosKey, gathosVid
   };
   const totalRuntime = () => buildTimeline().total;
 
+  // Structure template (from "Learn from a video") + learned preferences
+  const tplScriptNote = () => tpl ? `\n\nSTRUCTURE TEMPLATE — replicate this proven video structure exactly:\n${JSON.stringify({ summary: tpl.dna.summary, hook: tpl.dna.hook, phases: tpl.dna.phases, narration: tpl.dna.narration, rules: tpl.dna.replicationRules })}` : "";
+  const tplBoardNote = () => tpl ? `\nSTRUCTURE TEMPLATE — the storyboard must follow this analyzed video structure:\n- Target average shot length: ${tpl.dna.pacing?.avgShotSeconds || tpl.avgShot?.toFixed(1)}s (${tpl.dna.pacing?.notes || ""})\n- Phases in order (map onto the script proportionally): ${JSON.stringify(tpl.dna.phases)}\n- Rules: ${(tpl.dna.replicationRules || []).join(" | ")}\nFor EVERY shot add a "sourceType" field: "real" when the current phase calls for real/archival/documentary footage of the actual subject, otherwise "ai".` : "";
+
   // ---- Creative brief (research-driven; versions avoid repeating used items) ----
   const getUsedItems = () => (niche.history || []).filter(h => h.topic.toLowerCase() === ctx.topic.toLowerCase() && h.usedItems?.length).flatMap(h => h.usedItems);
   const genBrief = async () => {
@@ -177,7 +187,7 @@ export default function Studio({ niche, ctx, clKey, gemKey, gathosKey, gathosVid
     if (version > 1) extra = `\n\nIMPORTANT: This is VERSION ${version} of this topic. You MUST use COMPLETELY DIFFERENT specific items, examples, facts, and angles. Find obscure, lesser-known, surprising entries. Do NOT repeat the obvious choices.`;
     if (usedItems.length) extra += `\n\nALREADY USED IN PREVIOUS VERSIONS — DO NOT REPEAT ANY OF THESE:\n${usedItems.join(", ")}\n\nYou MUST pick DIFFERENT items that are NOT in this list.`;
     try {
-      const r = await claude(SYS_BRIEF, `Topic: ${ctx.topic}\nNiche: ${niche.name}\nDuration: ${dur} min\n\nSTRICT LIMIT: Stay under 9,000 characters. Detailed but concise.${extra}`, clKey);
+      const r = await claude(SYS_BRIEF, `Topic: ${ctx.topic}\nNiche: ${niche.name}\nDuration: ${dur} min\n\nSTRICT LIMIT: Stay under 9,000 characters. Detailed but concise.${extra}${lessonsNote(niche.id)}`, clKey);
       setBrief(r); setBriefOpen(true); persist({ brief: r });
       let hid = ctx.histId;
       if (!hid && addH) { hid = addH(niche.id, ctx.topic, version, r, ""); ctx.histId = hid; }
@@ -198,9 +208,10 @@ export default function Studio({ niche, ctx, clKey, gemKey, gathosKey, gathosVid
       const words = Math.round(+dur * 140);
       const guide = brief ? `\n\nUse this creative brief (built from competitor research) as your guide for angle, facts and structure:\n${brief.slice(0, 6000)}` : "";
       const fmtNote = vertical ? "\nFORMAT: This is a vertical YouTube Short — punchy, no slow build, hook in the first 2 seconds." : "";
-      const r = await claude(SYS_SCRIPT, `Topic: ${ctx.topic}\nNiche: ${niche.name}${niche.desc ? ` — ${niche.desc}` : ""}\nVideo length: ${dur} minutes → target ≈${words} words.${fmtNote}${guide}`, clKey, { maxTokens: 16000 });
+      const r = await claude(SYS_SCRIPT, `Topic: ${ctx.topic}\nNiche: ${niche.name}${niche.desc ? ` — ${niche.desc}` : ""}\nVideo length: ${dur} minutes → target ≈${words} words.${fmtNote}${guide}${tplScriptNote()}${lessonsNote(niche.id)}`, clKey, { maxTokens: 16000 });
       const clean = r.trim();
       setScript(clean); persist({ script: clean });
+      recordEvent(niche.id, "script_generated", { topic: ctx.topic, words: clean.split(/\s+/).length, template: tpl?.name || null, format });
       setSt(`✅ Script ready (${clean.split(/\s+/).length} words ≈ ${fmtTime(clean.split(/\s+/).length / 2.6)})`);
       setBusy(""); return clean;
     } catch (e) { setSt("⚠ " + e.message); setBusy(""); return ""; }
@@ -218,11 +229,12 @@ export default function Studio({ niche, ctx, clKey, gemKey, gathosKey, gathosVid
       for (let c = 0; c < chunks.length; c++) {
         if (cancelRef.current) break;
         setSt(chunks.length > 1 ? `Cutting script into shots — part ${c + 1}/${chunks.length}...` : "Cutting script into 3-5s shots...");
-        const raw = await claude(SYS_STORYBOARD, `NICHE: ${niche.name}\nVISUAL STYLE: ${style}${fmtNote}\n\nSCRIPT${chunks.length > 1 ? ` (PART ${c + 1} of ${chunks.length} — continue from previous parts)` : ""}:\n${chunks[c]}`, clKey, { maxTokens: 32000 });
-        arr = arr.concat(parseJson(raw).map(s => ({ section: s.section || "", narration: s.narration || "", visual: s.visual || "", broll: s.broll || [], overlay: s.overlay || "", img: null, video: null, credit: null })));
+        const raw = await claude(SYS_STORYBOARD, `NICHE: ${niche.name}\nVISUAL STYLE: ${style}${fmtNote}${tplBoardNote()}\n\nSCRIPT${chunks.length > 1 ? ` (PART ${c + 1} of ${chunks.length} — continue from previous parts)` : ""}:\n${chunks[c]}`, clKey, { maxTokens: 32000 });
+        arr = arr.concat(parseJson(raw).map(s => ({ section: s.section || "", narration: s.narration || "", visual: s.visual || "", broll: s.broll || [], overlay: s.overlay || "", sourceType: s.sourceType === "real" ? "real" : "ai", img: null, video: null, credit: null })));
       }
       setScenes(arr); setAudioSegs([]); persist({ scenes: arr });
       idbDelPrefix(mk("img:")); idbDelPrefix(mk("vid:")); clearSegsIdb(); idbDel(mk("video"));
+      recordEvent(niche.id, "storyboard_built", { shots: arr.length, realShots: arr.filter(x => x.sourceType === "real").length, template: tpl?.name || null });
       setSt(`✅ ${arr.length} shots (3-5s each) · est. runtime ${fmtTime(arr.reduce((t, s) => t + estDuration(s.narration), 0))}`);
       setBusy(""); return arr;
     } catch (e) { setSt("⚠ " + e.message); setBusy(""); return []; }
@@ -257,6 +269,7 @@ export default function Studio({ niche, ctx, clKey, gemKey, gathosKey, gathosVid
       });
       setScene(i, { video: { blobUrl: URL.createObjectURL(blob), thumb: s.img || null }, imgLoading: false });
       idbSet(mk(`vid:${i}`), { blob, thumb: s.img || null, credit: null });
+      recordEvent(niche.id, "clip_generated", { shot: i, hadFrame: !!s.img });
       setSt(`✅ Shot #${i + 1} clip ready`);
     } catch (e) { setScene(i, { imgErr: e.message, imgLoading: false }); }
   };
@@ -308,7 +321,8 @@ export default function Studio({ niche, ctx, clKey, gemKey, gathosKey, gathosVid
       setSt(`${style === "realasset" ? "Sourcing" : "Generating"} shots ${i + 1}-${Math.min(i + 3, arr.length)} of ${arr.length}...`);
       await Promise.all([0, 1, 2].map(k => {
         if (i + k >= arr.length) return null;
-        return style === "realasset" ? sourceScene(i + k, arr) : genImage(i + k, arr);
+        const wantReal = style === "realasset" || (arr[i + k].sourceType === "real" && (covKey || pixKey || pexKey));
+        return wantReal ? sourceScene(i + k, arr) : genImage(i + k, arr);
       }));
     }
     setSt("✅ Visuals ready"); setBusy("");
@@ -456,6 +470,8 @@ export default function Studio({ niche, ctx, clKey, gemKey, gathosKey, gathosVid
       }
       setVideo({ url: URL.createObjectURL(out.blob), ext: out.ext, duration: out.duration, size: out.blob.size });
       idbSet(mk("video"), { blob: out.blob, ext: out.ext, duration: out.duration });
+      recordEvent(niche.id, "video_rendered", { topic: ctx.topic, style, format, res, duration: Math.round(out.duration), music: !!music, template: tpl?.name || null });
+      reflect(niche.id, clKey);
       setSt(`✅ Video rendered — ${fmtTime(out.duration)} · ${(out.blob.size / 1048576).toFixed(1)} MB (${out.ext.toUpperCase()})`);
     } catch (e) { setSt(renderCancel.current ? "Render cancelled" : "⚠ " + e.message); }
     setRenderProg(-1); setBusy("");
@@ -482,6 +498,8 @@ export default function Studio({ niche, ctx, clKey, gemKey, gathosKey, gathosVid
       let hid = ctx.histId;
       if (!hid && addH) { hid = addH(niche.id, ctx.topic, ctx.version || 1, brief || "", ""); ctx.histId = hid; }
       if (hid && updateH) updateH(niche.id, hid, { seo: pkg });
+      recordEvent(niche.id, "seo_generated", { topic: ctx.topic, title: pkg.titles?.[0] });
+      reflect(niche.id, clKey);
       setSt("✅ SEO package ready — also pinned to Home");
     } catch (e) { setSt("⚠ " + e.message); }
     setBusy("");
@@ -534,6 +552,11 @@ export default function Studio({ niche, ctx, clKey, gemKey, gathosKey, gathosVid
         <span className="vs-style-n">{x.n}</span><span className="vs-style-d">{x.d}</span>
       </button>)}</div>
       <div className="vs-toolbar-r">
+        {templates.length > 0 && <div><label className="yt-label">Template</label>
+          <select className="yt-sel" value={tplId || ""} onChange={e => { const v = e.target.value ? +e.target.value : null; setTplId(v); persist({ tplId: v }); if (v) recordEvent(niche.id, "template_used", { template: templates.find(t => t.id === v)?.name }); }} disabled={disabled}>
+            <option value="">No template</option>
+            {templates.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+          </select></div>}
         <div><label className="yt-label">Format</label><select className="yt-sel" value={format} onChange={e => { setFormat(e.target.value); persist({ format: e.target.value }); }} disabled={disabled}><option value="16:9">16:9 long-form</option><option value="9:16">9:16 Short</option></select></div>
         <div><label className="yt-label">Length</label><select className="yt-sel" value={dur} onChange={e => setDur(e.target.value)} disabled={disabled}><option value="0.7">~40 sec</option><option value="1">~1 min</option><option value="3">~3 min</option><option value="5">~5 min</option><option value="8">6–8 min</option><option value="12">10–12 min</option><option value="15">13–15 min</option></select></div>
         <div><label className="yt-label">Voice</label>
@@ -577,7 +600,7 @@ export default function Studio({ niche, ctx, clKey, gemKey, gathosKey, gathosVid
           <button className={`yt-btn ${busy === "script" ? "yt-btn-ld" : ""}`} onClick={genScript} disabled={disabled}>{busy === "script" ? "Writing…" : script ? "Rewrite" : "Write script"}</button>
         </div>
         {brief && <p className="yt-hint">The brief above guides this script.</p>}
-        <textarea className="yt-input vs-script-area" rows="16" value={script} onChange={e => setScript(e.target.value)} onBlur={() => persist()} placeholder="Hit Write script — or paste your own narration. Mark sections with [SECTION: Name] lines."/>
+        <textarea className="yt-input vs-script-area" rows="16" value={script} onChange={e => setScript(e.target.value)} onFocus={e => { focusRef.current = e.target.value; }} onBlur={e => { persist(); if (focusRef.current && focusRef.current !== e.target.value) recordEvent(niche.id, "script_edited", { before: focusRef.current.slice(0, 220), after: e.target.value.slice(0, 220) }); }} placeholder="Hit Write script — or paste your own narration. Mark sections with [SECTION: Name] lines."/>
         {script && <div className="vs-row-between"><span className="yt-hint">{script.split(/\s+/).filter(Boolean).length} words ≈ {fmtTime(script.split(/\s+/).filter(Boolean).length / 2.6)} runtime</span>
           <button className="yt-btn" onClick={() => { genStoryboard(); setStep(1); }} disabled={disabled}>Storyboard it →</button></div>}
       </div>
@@ -593,11 +616,12 @@ export default function Studio({ niche, ctx, clKey, gemKey, gathosKey, gathosVid
         <div className="vs-scene-head"><span className="vs-scene-num">#{i + 1}</span><span className="vs-scene-sec">{s.section}</span><span className="vs-scene-dur">~{fmtTime(estDuration(s.narration))}</span>
           <button className="yt-x" onClick={() => { const n = scenes.filter((_, j) => j !== i); setScenes(n); setAudioSegs([]); clearSegsIdb(); idbDelPrefix(mk("img:")); idbDelPrefix(mk("vid:")); persist({ scenes: n }); }}>✕</button></div>
         <label className="yt-label">Narration (8-14 words)</label>
-        <textarea className="yt-input vs-scene-area" rows="1" value={s.narration} onChange={e => setScene(i, { narration: e.target.value })} onBlur={() => persist()}/>
+        <textarea className="yt-input vs-scene-area" rows="1" value={s.narration} onChange={e => setScene(i, { narration: e.target.value })} onFocus={e => { focusRef.current = e.target.value; }} onBlur={e => { persist(); if (focusRef.current && focusRef.current !== e.target.value) recordEvent(niche.id, "narration_edited", { before: focusRef.current, after: e.target.value }); }}/>
         <label className="yt-label">Visual prompt</label>
         <textarea className="yt-input vs-scene-area" rows="2" value={s.visual} onChange={e => setScene(i, { visual: e.target.value, img: null })} onBlur={() => persist()}/>
         <div className="vs-scene-meta">
           {s.broll?.length > 0 && <span className="vs-broll">B-roll: {s.broll.map((b, k) => <a key={k} href={`https://pixabay.com/videos/search/${encodeURIComponent(b)}/`} target="_blank" rel="noreferrer">{b}</a>)}</span>}
+          {s.sourceType === "real" && <span className="vs-real-tag">real footage</span>}
           {s.overlay && <span className="vs-overlay-tag">{s.overlay}</span>}
         </div>
       </div>)}
@@ -895,7 +919,7 @@ const STUDIO_CSS = `
 .vs-scene-meta{display:flex;gap:14px;flex-wrap:wrap;font-size:11px;color:var(--text3)}
 .vs-broll a{color:var(--blue);margin-left:6px;text-decoration:none}
 .vs-broll a:hover{text-decoration:underline}
-.vs-overlay-tag{color:var(--text2)}
+.vs-overlay-tag{color:var(--text2)}\n.vs-real-tag{font-size:9px;font-weight:600;text-transform:uppercase;letter-spacing:.4px;background:var(--blue-bg);color:var(--blue);padding:2px 7px;border-radius:8px}
 .vs-frames{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:14px;margin-top:14px}
 .vs-frame{background:var(--bg);border:1px solid var(--border);border-radius:var(--radius2);overflow:hidden}
 .vs-frame-img{position:relative;aspect-ratio:16/9;background:var(--surface)}

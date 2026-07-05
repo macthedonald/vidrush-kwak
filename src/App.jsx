@@ -6,6 +6,7 @@ import { useReveal, Counter } from "./anim.jsx";
 // Heavy pages are code-split — the dashboard shell stays fast.
 const Studio = lazy(() => import("./studio.jsx"));
 const NicheFinder = lazy(() => import("./nichefinder.jsx"));
+const Vision = lazy(() => import("./vision.jsx"));
 
 class ErrorBoundary extends Component {
   constructor(p) { super(p); this.state = { err: null }; }
@@ -117,7 +118,7 @@ function parseArr(raw) {
   throw new Error("Couldn't read the AI's JSON response — hit the button again");
 }
 
-const P = { HOME: 0, NICHE: 1, STUDIO: 3, FINDER: 4, SETTINGS: 5 };
+const P = { HOME: 0, NICHE: 1, STUDIO: 3, FINDER: 4, SETTINGS: 5, VISION: 6 };
 
 export default function App() {
   const [pg, setPg] = useState(P.HOME);
@@ -222,6 +223,7 @@ export default function App() {
         <nav className="nv-nav">
           <button className={pg===P.HOME?"on":""} onClick={()=>setPg(P.HOME)}>Home</button>
           <button className={pg===P.FINDER?"on":""} onClick={()=>setPg(P.FINDER)}>Niche finder</button>
+          <button className={pg===P.VISION?"on":""} onClick={()=>setPg(P.VISION)}>Learn from video</button>
           <button className={pg===P.SETTINGS?"on":""} onClick={()=>setPg(P.SETTINGS)}>Settings</button>
         </nav>
         <div className="nv-sec">Niches</div>
@@ -251,10 +253,11 @@ export default function App() {
         </button>}
       <main className="yt-main"><ErrorBoundary><Suspense fallback={<PageLoader/>}>
         {pg===P.HOME && <Home niches={niches} sn={sn} go={n=>{openNiche(n);setPg(P.NICHE);}} goFinder={()=>setPg(P.FINDER)} goSettings={()=>setPg(P.SETTINGS)} keysReady={!!(ytKey&&clKey&&gathosKey)} />}
-        {pg===P.SETTINGS && <SettingsPg keys={{ytKey,clKey,gemKey,gathosKey,gathosVidKey,groqKey,pexKey,pixKey,covKey,ai33Key,ai33Base}} setKeys={k=>{setYtKey(k.ytKey);ss("vr6-yt",k.ytKey);setClKey(k.clKey);ss("vr6-cl",k.clKey);setGemKey(k.gemKey);ss("vr6-gem",k.gemKey);setGathosKey(k.gathosKey);ss("vr8-gat",k.gathosKey);setGathosVidKey(k.gathosVidKey);ss("vr8-gatv",k.gathosVidKey);setGroqKey(k.groqKey);ss("vr8-groq",k.groqKey);setPexKey(k.pexKey);ss("vr7-pex",k.pexKey);setPixKey(k.pixKey);ss("vr7-pix",k.pixKey);setCovKey(k.covKey);ss("vr7-cov",k.covKey);setAi33Key(k.ai33Key);ss("vr7-a33",k.ai33Key);setAi33Base(k.ai33Base);ss("vr7-a33b",k.ai33Base);}} />}
+        {pg===P.SETTINGS && <SettingsPg niches={niches} keys={{ytKey,clKey,gemKey,gathosKey,gathosVidKey,groqKey,pexKey,pixKey,covKey,ai33Key,ai33Base}} setKeys={k=>{setYtKey(k.ytKey);ss("vr6-yt",k.ytKey);setClKey(k.clKey);ss("vr6-cl",k.clKey);setGemKey(k.gemKey);ss("vr6-gem",k.gemKey);setGathosKey(k.gathosKey);ss("vr8-gat",k.gathosKey);setGathosVidKey(k.gathosVidKey);ss("vr8-gatv",k.gathosVidKey);setGroqKey(k.groqKey);ss("vr8-groq",k.groqKey);setPexKey(k.pexKey);ss("vr7-pex",k.pexKey);setPixKey(k.pixKey);ss("vr7-pix",k.pixKey);setCovKey(k.covKey);ss("vr7-cov",k.covKey);setAi33Key(k.ai33Key);ss("vr7-a33",k.ai33Key);setAi33Base(k.ai33Base);ss("vr7-a33b",k.ai33Base);}} />}
         {pg===P.NICHE && niche && <NichePg niche={niches.find(x=>x.id===niche.id)||niche} niches={niches} ytKey={ytKey} clKey={clKey} sn={sn} back={()=>{setNiche(null);setPg(P.HOME);}} gen={(t,v,refThumb)=>openStudio(t,v||1,null,"",refThumb)} />}
         {pg===P.STUDIO && niche && studioCtx && <Studio niche={niche} ctx={studioCtx} clKey={clKey} gemKey={gemKey} gathosKey={gathosKey} gathosVidKey={gathosVidKey} groqKey={groqKey} pexKey={pexKey} pixKey={pixKey} covKey={covKey} ai33Key={ai33Key} ai33Base={ai33Base} addH={addH} updateH={updateH} back={()=>setPg(P.NICHE)} />}
         {pg===P.FINDER && <NicheFinder ytKey={ytKey} clKey={clKey} niches={niches} sn={sn} goNiche={n=>{openNiche(n);setPg(P.NICHE);}} />}
+        {pg===P.VISION && <Vision clKey={clKey} groqKey={groqKey} />}
       </Suspense></ErrorBoundary></main>
     </div>
     <style>{CSS}</style>
@@ -263,7 +266,9 @@ export default function App() {
 
 const P_LABELS = { ytKey:"YouTube Data API", clKey:"Anthropic", gemKey:"Google Gemini", ai33Key:"AI33", ai33Base:"AI33 base URL", covKey:"Coverr", pixKey:"Pixabay", pexKey:"Pexels" };
 
-function SettingsPg({ keys, setKeys }) {
+function SettingsPg({ keys, setKeys, niches }) {
+  const [memOpen, setMemOpen] = useState(null);
+  const [memText, setMemText] = useState("");
   const [k, setK] = useState(keys);
   const [saved, setSaved] = useState(false);
   const row = (field, label, desc, ph, type="password") => (
@@ -334,6 +339,31 @@ function SettingsPg({ keys, setKeys }) {
           </label>
         </div>
       </div>
+      <div className="nv-set-row">
+        <div className="nv-set-info">
+          <div className="nv-set-label">Learning memory</div>
+          <div className="nv-set-desc">What the app has learned from your edits and choices, per niche. It's injected into every brief, script, storyboard, and SEO prompt. Review, edit, or wipe it.</div>
+        </div>
+      </div>
+      {(niches||[]).map(n=>{
+        const lessons = localStorage.getItem(`vr8-lessons-${n.id}`)||"";
+        const evCount = (()=>{try{return JSON.parse(localStorage.getItem(`vr8-mem-${n.id}`)||"[]").length;}catch{return 0;}})();
+        if(!lessons&&!evCount) return null;
+        return <div className="nv-set-row" key={n.id}>
+          <div className="nv-set-info">
+            <div className="nv-set-label">{n.name}</div>
+            <div className="nv-set-desc">{evCount} logged actions{lessons?" · memory active":" · no distilled memory yet"}</div>
+            {memOpen===n.id&&<textarea className="yt-input" style={{marginTop:8,fontSize:12.5}} rows="6" value={memText} onChange={e=>setMemText(e.target.value)}/>}
+          </div>
+          <div className="yt-btn-row">
+            {memOpen===n.id
+              ? <><button className="yt-btn" onClick={()=>{memText.trim()?localStorage.setItem(`vr8-lessons-${n.id}`,memText):localStorage.removeItem(`vr8-lessons-${n.id}`);setMemOpen(null);}}>Save</button>
+                 <button className="yt-btn-o" onClick={()=>setMemOpen(null)}>Close</button></>
+              : <><button className="yt-btn-o" onClick={()=>{setMemOpen(n.id);setMemText(lessons);}}>{lessons?"View / edit":"View"}</button>
+                 <button className="yt-btn-o" onClick={()=>{if(confirm(`Wipe everything learned for "${n.name}"?`)){localStorage.removeItem(`vr8-lessons-${n.id}`);localStorage.removeItem(`vr8-mem-${n.id}`);setMemOpen(x=>x);setMemText("");setMemOpen(null);}}}>Wipe</button></>}
+          </div>
+        </div>;
+      })}
     </div>
   </div>);
 }
