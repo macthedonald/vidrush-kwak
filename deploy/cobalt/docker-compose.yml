@@ -1,0 +1,41 @@
+# Self-hosted cobalt extractor — powers VidRush's production YouTube (CC) clip pulls.
+#
+#   1. Edit COBALT_PUBLIC_URL below (or export it) to the URL you'll reach this instance at.
+#   2. docker compose up -d
+#   3. In Vercel → Settings → Environment Variables, set:
+#        COBALT_API_URL = the same public URL   (and COBALT_API_KEY if you enable auth below)
+#   4. Redeploy VidRush.
+#
+# Watchtower keeps the image auto-updated (cobalt ships frequent extractor fixes).
+services:
+  cobalt-api:
+    image: ghcr.io/imputnet/cobalt:11
+    init: true
+    read_only: true
+    restart: unless-stopped
+    container_name: cobalt-api
+    ports:
+      - "9000:9000/tcp"
+    environment:
+      # MUST exactly match the public URL you reach this instance at, WITH a trailing slash.
+      #   Local test:  http://localhost:9000/
+      #   Production:  https://cobalt.yourdomain.com/
+      API_URL: "${COBALT_PUBLIC_URL:-http://localhost:9000/}"
+      # Optional rate-limit knobs:
+      # RATELIMIT_MAX: "60"
+      # DURATION_LIMIT: "1200"      # refuse videos longer than 20 min
+      #
+      # Optional API-key auth. Uncomment the two lines below + the volume, create keys.json
+      # (see keys.example.json), then set COBALT_API_KEY in Vercel to one of those keys.
+      # API_KEY_URL: "file:///keys.json"
+    # volumes:
+    #   - ./keys.json:/keys.json:ro
+    labels:
+      - com.centurylinklabs.watchtower.scope=cobalt
+
+  watchtower:
+    image: ghcr.io/containrrr/watchtower
+    restart: unless-stopped
+    command: --cleanup --scope cobalt --interval 900 --include-restarting
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
