@@ -430,13 +430,15 @@ const STOP = new Set("the a an and or of in on at to for with from into over und
 export function queryTerms(s) {
   return new Set(String(s || "").toLowerCase().split(/[^a-z0-9]+/).filter(w => w.length > 2 && !STOP.has(w)));
 }
+// Sources that hold real footage of the actual subject (vs generic stock) get a ranking bonus.
+const REAL_SOURCES = new Set(["Wikimedia Commons", "Internet Archive"]);
 // Relevance 0..1: term overlap with the shot's search terms, plus small motion/real-subject bonuses.
 export function scoreAsset(qterms, asset) {
   const at = queryTerms([asset.title, asset.credit, (asset.tags || []).join(" ")].join(" "));
   let hit = 0; for (const t of qterms) if (at.has(t)) hit++;
   let s = hit / Math.max(3, qterms.size);
   if (asset.kind === "video") s += 0.05;                        // prefer motion when equally relevant
-  if (asset.source === "Wikimedia Commons") s += 0.12;          // prefer the real subject over stock
+  if (REAL_SOURCES.has(asset.source)) s += 0.12;               // prefer the real subject over stock
   return s;
 }
 
@@ -467,9 +469,56 @@ export async function wikimediaMedia(query, limit = 8) {
   }).filter(Boolean);
 }
 
-// Source ONE real asset for a shot. Pools candidates from Wikimedia Commons (real subject) and
-// any configured stock providers across ALL the shot's search queries, then returns the single
-// best match by relevance — instead of blindly taking the first hit of the first provider.
+// ---------- Internet Archive: real, public-domain archival VIDEO (and images) of the subject ----------
+// Two-step: advancedsearch returns identifiers + titles (used for ranking); the actual media file
+// is resolved lazily via the metadata endpoint only for the item we actually pick.
+export async function archiveVideos(query, limit = 6) {
+  const u = `https://archive.org/advancedsearch.php?q=${encodeURIComponent(query + " AND mediatype:(movies)")}&fl[]=identifier&fl[]=title&fl[]=year&rows=${limit}&output=json`;
+  const r = await pfetch(u);
+  if (!r.ok) throw new Error(`Internet Archive ${r.status}`);
+  const d = await r.json();
+  return (d.response?.docs || []).map(doc => ({
+    kind: "video", identifier: doc.identifier,
+    title: doc.title || doc.identifier,
+    thumb: `https://archive.org/services/img/${doc.identifier}`,
+    credit: `${doc.title || doc.identifier}${doc.year ? " (" + doc.year + ")" : ""} — Internet Archive`,
+    url: `https://archive.org/details/${doc.identifier}`,
+    source: "Internet Archive", _needsResolve: true,
+  }));
+}
+// Resolve an Internet Archive item to a concrete, playable file URL (prefers a web-friendly mp4).
+export async function archiveResolveFile(asset) {
+  const r = await pfetch(`https://archive.org/metadata/${asset.identifier}`);
+  if (!r.ok) return null;
+  const d = await r.json();
+  const files = d.files || [];
+  const byExt = (re, extra = () => true) => files.find(f => re.test(f.name || "") && extra(f));
+  const pick = byExt(/\.mp4$/i, f => f.source === "derivative") || byExt(/\.mp4$/i) || byExt(/\.(webm|ogv)$/i) || byExt(/\.(m4v|mov)$/i);
+  if (!pick) return null;
+  return { ...asset, src: `https://archive.org/download/${asset.identifier}/${encodeURIComponent(pick.name)}`, _needsResolve: false };
+}
+
+// ---------- YouTube: Creative-Commons–licensed results only (reusable with attribution) ----------
+// CC-BY YouTube videos are the monetization-safe subset — legally reusable when credited, and used
+// as short, transformed b-roll under original narration. Manual/curated (picker), never auto-sourced.
+export async function youtubeCC(query, ytKey, limit = 8) {
+  if (!ytKey) throw new Error("Add your YouTube Data API key in Settings to search YouTube");
+  const r = await pfetch(`https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&videoLicense=creativeCommon&videoEmbeddable=true&safeSearch=moderate&maxResults=${limit}&q=${encodeURIComponent(query)}&key=${ytKey}`);
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(d.error?.message || `YouTube ${r.status}`);
+  return (d.items || []).map(it => ({
+    kind: "youtube", videoId: it.id?.videoId,
+    title: it.snippet?.title || "",
+    thumb: it.snippet?.thumbnails?.medium?.url || it.snippet?.thumbnails?.default?.url,
+    credit: `${it.snippet?.title || "Video"} — ${it.snippet?.channelTitle || "YouTube"} (YouTube, CC BY)`,
+    url: `https://www.youtube.com/watch?v=${it.id?.videoId}`,
+    source: "YouTube (CC)",
+  })).filter(v => v.videoId);
+}
+
+// Source ONE real asset for a shot. Pools candidates from Wikimedia Commons + Internet Archive
+// (real subject) and any configured stock providers across ALL the shot's search queries, then
+// returns the single best match by relevance — resolving the Archive file lazily for the winner.
 // `queries` may be a string or an array of 2-4 short queries. Set { real:false } for stock-only.
 export async function sourceRealAsset(queries, keys = {}, { real = true } = {}) {
   const qs = (Array.isArray(queries) ? queries : [queries]).map(q => String(q || "").trim()).filter(Boolean);
@@ -477,7 +526,10 @@ export async function sourceRealAsset(queries, keys = {}, { real = true } = {}) 
   const q0 = qs[0], q1 = qs[1] || qs[0];
   const qterms = queryTerms(qs.join(" "));
   const jobs = [];
-  if (real) { jobs.push(wikimediaMedia(q0, 8)); if (q1 !== q0) jobs.push(wikimediaMedia(q1, 6)); }
+  if (real) {
+    jobs.push(wikimediaMedia(q0, 8)); if (q1 !== q0) jobs.push(wikimediaMedia(q1, 6));
+    jobs.push(archiveVideos(q0, 6));
+  }
   if (keys.coverr) jobs.push(coverrVideos(q0, keys.coverr, 4));
   if (keys.pixabay) { jobs.push(pixabayVideos(q0, keys.pixabay, 4)); jobs.push(pixabayPhotos(q0, keys.pixabay, 4)); }
   if (keys.pexels) { jobs.push(pexelsVideos(q0, keys.pexels, 4)); jobs.push(pexelsPhotos(q0, keys.pexels, 4)); }
@@ -487,7 +539,12 @@ export async function sourceRealAsset(queries, keys = {}, { real = true } = {}) 
   if (!pool.length) return null;
   pool.forEach(a => { a._score = scoreAsset(qterms, a); });
   pool.sort((a, b) => b._score - a._score);
-  return pool[0];
+  // Walk the top matches; resolve Archive items to a real file, skip any that don't resolve.
+  for (const cand of pool.slice(0, 6)) {
+    if (!cand._needsResolve) return cand;
+    try { const resolved = await archiveResolveFile(cand); if (resolved) return resolved; } catch {}
+  }
+  return null;
 }
 export async function urlToBlobUrl(url) {
   const resp = await pfetch(url);
