@@ -641,7 +641,7 @@ export const estDuration = narration => Math.max(2.5, narration.split(/\s+/).fil
 
 // ---------- Renderer: canvas + MediaRecorder → MP4/WebM ----------
 // Paint one frame of the timeline at time `now` — shared by both renderers.
-function paintFrame(g, timeline, now, W, H, style, subtitles) {
+function paintFrame(g, timeline, now, W, H, style, subtitles, brand, logoEl, total) {
   const cur = now < 0 ? timeline[0] : (timeline.filter(s => now >= s.start).pop() || timeline[timeline.length - 1]);
   if (!cur) return null;
   const p = Math.min(1, Math.max(0, (now - cur.start) / cur.duration));
@@ -656,8 +656,40 @@ function paintFrame(g, timeline, now, W, H, style, subtitles) {
       g.globalAlpha = 1;
     }
   }
-  if (subtitles && now <= cur.start + cur.duration) drawSubs(g, cur, p, now, W, H, style === "doodle");
+  if (subtitles && now <= cur.start + cur.duration) drawSubs(g, cur, p, now, W, H, style === "doodle", brand?.accent);
+  drawBrand(g, brand, logoEl, W, H, now, total);
   return cur;
+}
+
+// Brand overlays: a persistent logo watermark and a channel-name lower-third during the opening.
+// Pure per-frame drawing — no effect on timing or audio.
+function drawBrand(g, brand, logoEl, W, H, now, total) {
+  if (!brand) return;
+  if (logoEl && logoEl.width) {
+    const lw = W * (brand.wmScale || 0.1);
+    const lh = lw * (logoEl.height / logoEl.width);
+    const m = W * 0.028;
+    const pos = brand.wmPos || "br";
+    const x = pos.includes("l") ? m : W - lw - m;
+    const y = pos.includes("t") ? m : H - lh - m;
+    g.globalAlpha = brand.wmOpacity ?? 0.7;
+    g.drawImage(logoEl, x, y, lw, lh);
+    g.globalAlpha = 1;
+  }
+  if (brand.channel && total > 6 && now >= 0.3 && now < 4.3) {
+    const a = now < 0.7 ? (now - 0.3) / 0.4 : now > 3.9 ? Math.max(0, (4.3 - now) / 0.4) : 1;
+    g.globalAlpha = a;
+    g.font = `700 ${Math.round(H * 0.032)}px 'DM Sans', sans-serif`;
+    g.textBaseline = "middle";
+    const t = brand.channel, tw = g.measureText(t).width;
+    const padX = W * 0.02, bx = W * 0.035, by = H * 0.8, bh = H * 0.062;
+    g.fillStyle = brand.accent || "#111";
+    roundRect(g, bx, by, tw + padX * 2, bh, 8); g.fill();
+    g.fillStyle = "#fff";
+    g.fillText(t, bx + padX, by + bh / 2);
+    g.globalAlpha = 1;
+    g.textBaseline = "alphabetic";
+  }
 }
 
 // Offline audio mix: voiceover segments + ducked music → stereo 48k AudioBuffer.
@@ -700,7 +732,7 @@ function drawCoverM(g, media, W, H, scale, px, py) {
   g.drawImage(media.el, (W - dw) / 2 + px * (dw - W) / 2, (H - dh) / 2 + py * (dh - H) / 2, dw, dh);
 }
 
-function drawSubs(g, scene, p, now, W, H, doodle) {
+function drawSubs(g, scene, p, now, W, H, doodle, accent) {
   const words = scene.words;
   if (!words.length) return;
   // word-accurate timing when the TTS provider returned timestamps; estimated otherwise
@@ -725,7 +757,7 @@ function drawSubs(g, scene, p, now, W, H, doodle) {
   roundRect(g, x - padX, y - padY, totalW + padX * 2, padY * 2, 10); g.fill();
   group.forEach((w, i) => {
     const active = gStart + i === idx;
-    g.fillStyle = doodle ? (active ? "#e02020" : "#111") : (active ? "#ffd734" : "#fff");
+    g.fillStyle = doodle ? (active ? "#e02020" : "#111") : (active ? (accent || "#ffd734") : "#fff");
     g.fillText(w, x, y);
     x += widths[i];
   });
@@ -775,12 +807,14 @@ function drawScene(g, s, p, W, H, style) {
 // shots: [{idx, start, duration, imgEl?, vidEl?, narration, overlay, section}] with precomputed timing.
 // audioSegs: [{pcm, rate, start}] — section-level voiceover segments.
 // music: optional {buffer: AudioBuffer, volume: 0..1} — looped under the voiceover, faded out at the end.
-export function renderVideo({ shots, audioSegs = [], total, music = null, style = "cinematic", width = 1280, height = 720, fps = 30, subtitles = true, onProgress }) {
+export function renderVideo({ shots, audioSegs = [], total, music = null, style = "cinematic", width = 1280, height = 720, fps = 30, subtitles = true, brand = null, onProgress }) {
   return new Promise(async (resolve, reject) => {
     try {
       const canvas = document.createElement("canvas");
       canvas.width = width; canvas.height = height;
       const g = canvas.getContext("2d");
+      let logoEl = null;
+      if (brand?.logo) { try { logoEl = await loadImage(brand.logo); } catch {} }
       const timeline = shots.map((s, idx) => ({ ...s, idx, words: (s.narration || "").split(/\s+/).filter(Boolean) }));
       total = (total || (timeline.length ? timeline[timeline.length - 1].start + timeline[timeline.length - 1].duration : 0)) + 0.4;
       const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -827,7 +861,7 @@ export function renderVideo({ shots, audioSegs = [], total, music = null, style 
       const loop = () => {
         if (stopped) return;
         const now = (performance.now() - startClock) / 1000;
-        const cur = paintFrame(g, timeline, now, width, height, style, subtitles);
+        const cur = paintFrame(g, timeline, now, width, height, style, subtitles, brand, logoEl, total);
         if (cur && cur.vidEl && playingIdx !== cur.idx) {
           if (playingIdx >= 0 && timeline[playingIdx]?.vidEl) timeline[playingIdx].vidEl.pause();
           try { cur.vidEl.currentTime = 0; cur.vidEl.play().catch(() => {}); } catch {}
@@ -868,10 +902,12 @@ function seekVideo(v, t) {
   });
 }
 
-export async function renderVideoFast({ shots, audioSegs = [], total, music = null, style = "cinematic", width = 1280, height = 720, fps = 30, subtitles = true, onProgress, isCancelled }) {
+export async function renderVideoFast({ shots, audioSegs = [], total, music = null, style = "cinematic", width = 1280, height = 720, fps = 30, subtitles = true, brand = null, onProgress, isCancelled }) {
   const { Muxer, ArrayBufferTarget } = await import("mp4-muxer");
   const codec = await canRenderFast(width, height);
   if (!codec) throw new Error("WebCodecs H.264/AAC not supported in this browser");
+  let logoEl = null;
+  if (brand?.logo) { try { logoEl = await loadImage(brand.logo); } catch {} }
   const timeline = shots.map((s, idx) => ({ ...s, idx, words: (s.narration || "").split(/\s+/).filter(Boolean) }));
   total = (total || (timeline.length ? timeline[timeline.length - 1].start + timeline[timeline.length - 1].duration : 0)) + 0.4;
 
@@ -911,7 +947,7 @@ export async function renderVideoFast({ shots, audioSegs = [], total, music = nu
     const now = f / fps;
     const cur = now < 0 ? timeline[0] : (timeline.filter(s => now >= s.start).pop() || timeline[timeline.length - 1]);
     if (cur?.vidEl) await seekVideo(cur.vidEl, now - cur.start);
-    paintFrame(g, timeline, now, width, height, style, subtitles);
+    paintFrame(g, timeline, now, width, height, style, subtitles, brand, logoEl, total);
     const frame = new VideoFrame(canvas, { timestamp: Math.round(now * 1e6), duration: Math.round(1e6 / fps) });
     vEnc.encode(frame, { keyFrame: f % (fps * 5) === 0 });
     frame.close();
