@@ -13,6 +13,8 @@ const PROXY_HOSTS = [
   /(^|\.)pixabay\.com$/,
   /(^|\.)coverr\.co$/,
   /(^|\.)vimeocdn\.com$/,
+  /(^|\.)wikimedia\.org$/,
+  /(^|\.)wikipedia\.org$/,
 ];
 
 export function needsProxy(url) {

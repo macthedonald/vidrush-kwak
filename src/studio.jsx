@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import {
   claude, parseJson, SYS_BRIEF, SYS_SCRIPT, SYS_SEO, STYLE_WRAP,
   geminiTTS, groqTranscribe, concatPcm, pcmToWav, pcmToMp3,
-  coverrVideos, pixabayVideos, pixabayPhotos, pexelsVideos, pexelsPhotos, sourceRealAsset, urlToDataURL,
+  coverrVideos, pixabayVideos, pixabayPhotos, pexelsVideos, pexelsPhotos, sourceRealAsset, wikimediaMedia, urlToDataURL,
   makeZip, fmtTime, estDuration, renderVideo, renderVideoFast, canRenderFast, loadImage, loadVideoEl, pickMime,
 } from "./pipeline";
 import { gathosImage, gathosVideo, GATHOS_STYLE } from "./gathos";
@@ -13,6 +13,7 @@ import { idbSet, idbGet, idbDel, idbDelPrefix } from "./store";
 import ThumbLab from "./thumblab";
 import { recordEvent, lessonsNote, reflect } from "./memory";
 import { cloudGet as ls, cloudSet as ss } from "./cloud.js";
+import { pfetch } from "./net.js";
 
 const STEPS = ["Script", "Storyboard", "Visuals", "Voiceover", "Render", "Thumbnail", "SEO Package"];
 
@@ -84,7 +85,7 @@ function fastSplitShots(script) {
 const SYS_VISUALS = `You are a storyboard visual director for fast-cut faceless YouTube videos.
 For each numbered narration line you receive, imagine ONE concrete shot that illustrates that beat.
 Return ONLY a JSON array with exactly one object per line, IN THE SAME ORDER, no markdown:
-[{"visual":"30-50 word prompt describing ONE concrete frame: subject, setting, composition, lighting, mood. Visual keywords only, no text in image","broll":["2-4 word stock-footage query","alternative query"],"overlay":"optional on-screen text, max 4 words, or empty string","sourceType":"real or ai"}]`;
+[{"visual":"30-50 word prompt describing ONE concrete frame: subject, setting, composition, lighting, mood. Visual keywords only, no text in image","broll":["2-4 SPECIFIC search queries: use the real proper nouns, names, places, objects or events named in the narration (e.g. 'Colosseum Rome interior', 'Julius Caesar marble bust', 'Apollo 11 launch') — concrete and searchable, NOT generic words like 'success' or 'history'","second more specific query","a broader backup query"],"overlay":"optional on-screen text, max 4 words, or empty string","sourceType":"real when this beat depicts a real person/place/event/object that genuine archival footage would show, otherwise ai"}]`;
 
 export default function Studio({ niche, ctx, clKey, gemKey, gathosKey, gathosVidKey, groqKey, pexKey, pixKey, covKey, ai33Key, ai33Base, back, addH, updateH }) {
   const vidKey = gathosVidKey || gathosKey; // legacy img_live_* keys also work for video
@@ -395,11 +396,12 @@ export default function Studio({ niche, ctx, clKey, gemKey, gathosKey, gathosVid
   };
   const sourceScene = async (i, list) => {
     const s = (list || scenes)[i];
-    const q = s.broll?.[0] || s.visual.slice(0, 40);
+    // Feed ALL the shot's search queries (subject-specific) so sourcing pools + ranks matches.
+    const queries = (s.broll && s.broll.length) ? s.broll : [s.narration.split(/[.,;:!?]/)[0].split(/\s+/).slice(0, 6).join(" ")];
     setScene(i, { imgErr: null, imgLoading: true });
     try {
-      const asset = await sourceRealAsset(q, assetKeys);
-      if (!asset) { setScene(i, { imgErr: "No asset found", imgLoading: false }); return; }
+      const asset = await sourceRealAsset(queries, assetKeys, { real: true });
+      if (!asset) { setScene(i, { imgErr: "No matching footage found", imgLoading: false }); return; }
       await applyAsset(i, asset);
     } catch (e) { setScene(i, { imgErr: e.message, imgLoading: false }); }
   };
@@ -408,7 +410,7 @@ export default function Studio({ niche, ctx, clKey, gemKey, gathosKey, gathosVid
     try {
       const credit = { text: asset.credit, url: asset.url, source: asset.source };
       if (asset.kind === "video") {
-        const resp = await fetch(asset.src);
+        const resp = await pfetch(asset.src);
         if (!resp.ok) throw new Error(`Asset fetch ${resp.status}`);
         const blob = await resp.blob();
         setScene(i, { video: { blobUrl: URL.createObjectURL(blob), thumb: asset.thumb }, img: null, credit, imgLoading: false });
@@ -436,15 +438,16 @@ export default function Studio({ niche, ctx, clKey, gemKey, gathosKey, gathosVid
   };
   const openSourcePicker = async (i, tab) => {
     const q = scenes[i].broll?.[0] || scenes[i].visual.slice(0, 40);
-    const t = tab || (covKey ? "coverr" : pixKey ? "pixabay" : "pexels");
+    const t = tab || "wikimedia"; // default to real-subject archive; stock tabs are a click away
     setSrcPick({ sceneIdx: i, query: q, tab: t, results: [], loading: true });
     await loadSourceResults(i, q, t);
   };
   const loadSourceResults = async (i, q, tab) => {
-    setSrcPick(p => ({ ...p, sceneIdx: i, query: q, tab, loading: true, results: [] }));
+    setSrcPick(p => ({ ...p, sceneIdx: i, query: q, tab, loading: true, results: [], err: "" }));
     try {
       let results = [];
-      if (tab === "coverr") results = covKey ? await coverrVideos(q, covKey, 8) : [];
+      if (tab === "wikimedia") results = await wikimediaMedia(q, 12);
+      else if (tab === "coverr") results = covKey ? await coverrVideos(q, covKey, 8) : [];
       else if (tab === "pixabay") results = pixKey ? [...await pixabayVideos(q, pixKey, 4), ...await pixabayPhotos(q, pixKey, 4)] : [];
       else results = pexKey ? [...await pexelsVideos(q, pexKey, 4), ...await pexelsPhotos(q, pexKey, 4)] : [];
       setSrcPick(p => p && { ...p, results, loading: false });
@@ -760,7 +763,7 @@ export default function Studio({ niche, ctx, clKey, gemKey, gathosKey, gathosVid
         <p className="vs-frame-cap">{s.visual.slice(0, 80)}{s.visual.length > 80 ? "…" : ""}</p>
         <div className="vs-frame-btns">
           {style === "realasset" && <button className="yt-btn-remake" onClick={() => sourceScene(i)} disabled={s.imgLoading}>Auto</button>}
-          {(covKey || pixKey || pexKey) && <button className="yt-btn-remake" onClick={() => openSourcePicker(i)} disabled={s.imgLoading}>Pick</button>}
+          <button className="yt-btn-remake" onClick={() => openSourcePicker(i)} disabled={s.imgLoading}>Pick</button>
           <button className="yt-btn-remake" onClick={() => genImage(i)} disabled={s.imgLoading}>{s.img ? "Redo frame" : "AI frame"}</button>
           {vidKey && <button className="yt-btn-remake" onClick={() => genClip(i)} disabled={s.imgLoading} title={s.img ? "Animate this frame into a clip" : "Text-to-video clip"}>{s.video ? "Redo clip" : "AI clip"}</button>}
         </div>
@@ -768,6 +771,7 @@ export default function Studio({ niche, ctx, clKey, gemKey, gathosKey, gathosVid
       {srcPick && <div className="vs-pex-modal" onClick={() => setSrcPick(null)}><div className="vs-pex-box" onClick={e => e.stopPropagation()}>
         <div className="vs-row-between"><span className="yt-card-ht">Source shot #{srcPick.sceneIdx + 1}</span><button className="yt-x" onClick={() => setSrcPick(null)}>✕</button></div>
         <div className="vs-src-tabs">
+          <button className={`vs-src-tab ${srcPick.tab === "wikimedia" ? "active" : ""}`} onClick={() => loadSourceResults(srcPick.sceneIdx, srcPick.query, "wikimedia")}>Real footage</button>
           {covKey && <button className={`vs-src-tab ${srcPick.tab === "coverr" ? "active" : ""}`} onClick={() => loadSourceResults(srcPick.sceneIdx, srcPick.query, "coverr")}>Coverr</button>}
           {pixKey && <button className={`vs-src-tab ${srcPick.tab === "pixabay" ? "active" : ""}`} onClick={() => loadSourceResults(srcPick.sceneIdx, srcPick.query, "pixabay")}>Pixabay</button>}
           {pexKey && <button className={`vs-src-tab ${srcPick.tab === "pexels" ? "active" : ""}`} onClick={() => loadSourceResults(srcPick.sceneIdx, srcPick.query, "pexels")}>Pexels</button>}

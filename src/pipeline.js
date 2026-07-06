@@ -424,19 +424,70 @@ export async function pixabayPhotos(query, key, perPage = 6) {
   const d = await r.json();
   return (d.hits || []).map(p => ({ kind: "photo", src: p.largeImageURL, thumb: p.webformatURL, credit: `Photo by ${p.user} on Pixabay`, url: p.pageURL, source: "Pixabay" }));
 }
-// Cascade: Coverr video → Pixabay video → Pixabay photo → Pexels video → Pexels photo.
-export async function sourceRealAsset(query, keys) {
-  const tries = [
-    keys.coverr && (() => coverrVideos(query, keys.coverr, 3)),
-    keys.pixabay && (() => pixabayVideos(query, keys.pixabay, 3)),
-    keys.pixabay && (() => pixabayPhotos(query, keys.pixabay, 3)),
-    keys.pexels && (() => pexelsVideos(query, keys.pexels, 3)),
-    keys.pexels && (() => pexelsPhotos(query, keys.pexels, 3)),
-  ].filter(Boolean);
-  for (const fn of tries) {
-    try { const res = await fn(); if (res.length) return res[0]; } catch {}
-  }
-  return null;
+// ---------- Wikimedia Commons: real, openly-licensed footage/photos of the ACTUAL subject ----------
+// (real people, places, events, objects — not generic stock). No API key; CORS via origin=*.
+const STOP = new Set("the a an and or of in on at to for with from into over under this that these those is are was were be being real actual footage clip video photo image shot scene view close up wide angle shows showing depicting depicts".split(" "));
+export function queryTerms(s) {
+  return new Set(String(s || "").toLowerCase().split(/[^a-z0-9]+/).filter(w => w.length > 2 && !STOP.has(w)));
+}
+// Relevance 0..1: term overlap with the shot's search terms, plus small motion/real-subject bonuses.
+export function scoreAsset(qterms, asset) {
+  const at = queryTerms([asset.title, asset.credit, (asset.tags || []).join(" ")].join(" "));
+  let hit = 0; for (const t of qterms) if (at.has(t)) hit++;
+  let s = hit / Math.max(3, qterms.size);
+  if (asset.kind === "video") s += 0.05;                        // prefer motion when equally relevant
+  if (asset.source === "Wikimedia Commons") s += 0.12;          // prefer the real subject over stock
+  return s;
+}
+
+export async function wikimediaMedia(query, limit = 8) {
+  const u = `https://commons.wikimedia.org/w/api.php?action=query&generator=search&gsrsearch=${encodeURIComponent(query)}&gsrnamespace=6&gsrlimit=${limit}&prop=imageinfo&iiprop=url|mime|extmetadata&iiurlwidth=1280&format=json&origin=*`;
+  const r = await pfetch(u);
+  if (!r.ok) throw new Error(`Wikimedia ${r.status}`);
+  const d = await r.json();
+  const pages = d.query?.pages ? Object.values(d.query.pages) : [];
+  return pages.map(p => {
+    const ii = p.imageinfo?.[0]; if (!ii) return null;
+    const mime = ii.mime || "";
+    const isVid = /^video\//.test(mime) || /\.(webm|ogv|ogg|mp4)$/i.test(ii.url || "");
+    const isImg = /^image\//.test(mime) && !/svg/.test(mime);
+    if (!isVid && !isImg) return null;                          // skip svg/pdf/audio
+    const title = (p.title || "").replace(/^File:/, "").replace(/\.\w+$/, "").replace(/_/g, " ");
+    const artist = (ii.extmetadata?.Artist?.value || "").replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim();
+    const license = ii.extmetadata?.LicenseShortName?.value || "";
+    return {
+      kind: isVid ? "video" : "photo",
+      src: isVid ? ii.url : (ii.thumburl || ii.url),
+      thumb: ii.thumburl || ii.url,
+      title,
+      credit: `${title}${artist ? " — " + artist : ""}${license ? " (" + license + ")" : ""}, via Wikimedia Commons`,
+      url: ii.descriptionurl || `https://commons.wikimedia.org/wiki/${encodeURIComponent(p.title || "")}`,
+      source: "Wikimedia Commons",
+    };
+  }).filter(Boolean);
+}
+
+// Source ONE real asset for a shot. Pools candidates from Wikimedia Commons (real subject) and
+// any configured stock providers across ALL the shot's search queries, then returns the single
+// best match by relevance — instead of blindly taking the first hit of the first provider.
+// `queries` may be a string or an array of 2-4 short queries. Set { real:false } for stock-only.
+export async function sourceRealAsset(queries, keys = {}, { real = true } = {}) {
+  const qs = (Array.isArray(queries) ? queries : [queries]).map(q => String(q || "").trim()).filter(Boolean);
+  if (!qs.length) return null;
+  const q0 = qs[0], q1 = qs[1] || qs[0];
+  const qterms = queryTerms(qs.join(" "));
+  const jobs = [];
+  if (real) { jobs.push(wikimediaMedia(q0, 8)); if (q1 !== q0) jobs.push(wikimediaMedia(q1, 6)); }
+  if (keys.coverr) jobs.push(coverrVideos(q0, keys.coverr, 4));
+  if (keys.pixabay) { jobs.push(pixabayVideos(q0, keys.pixabay, 4)); jobs.push(pixabayPhotos(q0, keys.pixabay, 4)); }
+  if (keys.pexels) { jobs.push(pexelsVideos(q0, keys.pexels, 4)); jobs.push(pexelsPhotos(q0, keys.pexels, 4)); }
+  const settled = await Promise.allSettled(jobs);
+  const pool = [];
+  for (const s of settled) if (s.status === "fulfilled" && Array.isArray(s.value)) pool.push(...s.value);
+  if (!pool.length) return null;
+  pool.forEach(a => { a._score = scoreAsset(qterms, a); });
+  pool.sort((a, b) => b._score - a._score);
+  return pool[0];
 }
 export async function urlToBlobUrl(url) {
   const resp = await pfetch(url);
