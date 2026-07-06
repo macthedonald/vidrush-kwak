@@ -1,9 +1,9 @@
 import { useState, useEffect, useRef } from "react";
 import {
-  claude, parseJson, SYS_BRIEF, SYS_SCRIPT, SYS_STORYBOARD, SYS_SEO, STYLE_WRAP,
+  claude, parseJson, SYS_BRIEF, SYS_SCRIPT, SYS_SEO, STYLE_WRAP,
   geminiTTS, groqTranscribe, concatPcm, pcmToWav, pcmToMp3,
   coverrVideos, pixabayVideos, pixabayPhotos, pexelsVideos, pexelsPhotos, sourceRealAsset, urlToDataURL,
-  makeZip, fmtTime, estDuration, renderVideo, renderVideoFast, canRenderFast, chunkScript, loadImage, loadVideoEl, pickMime,
+  makeZip, fmtTime, estDuration, renderVideo, renderVideoFast, canRenderFast, loadImage, loadVideoEl, pickMime,
 } from "./pipeline";
 import { gathosImage, gathosVideo, GATHOS_STYLE } from "./gathos";
 import { GEMINI_VOICES, ELEVENLABS_VOICES, MINIMAX_VOICES, ai33ListVoices, ai33TTS, ai33Clone, ai33DeleteClone, ai33Suno, decodeAudioBuffer, decodeToPcm24k, AI33_DEFAULT_BASE } from "./ai33";
@@ -34,6 +34,57 @@ const STYLES = [
   { id: "realasset", n: "Real Assets", d: "Coverr + Pixabay clips/photos, Pexels fallback" },
   { id: "doodle", n: "Stickman Doodle", d: "Hand-drawn frames, hard cuts, no zoom" },
 ];
+
+// Length presets → the word target aims at the MIDDLE of each labeled range
+// (not the top), so "10–12 min" lands ~11 min, not 12. Values match the <select>.
+const DUR_META = {
+  "0.7": { label: "about 40 seconds", words: 100 },
+  "1":   { label: "about 1 minute", words: 150 },
+  "3":   { label: "about 3 minutes", words: 420 },
+  "5":   { label: "about 5 minutes", words: 700 },
+  "8":   { label: "6–8 minutes", words: 980 },    // midpoint ~7 min
+  "12":  { label: "10–12 minutes", words: 1540 }, // midpoint ~11 min
+  "15":  { label: "13–15 minutes", words: 1960 }, // midpoint ~14 min
+};
+const durMeta = (d) => DUR_META[d] || { label: `about ${d} minutes`, words: Math.round(+d * 140) };
+
+const wcount = (t) => t.split(/\s+/).filter(Boolean).length;
+// Instant, deterministic split of a clean script into 3-5s shots (~8-14 words each),
+// cutting at sentence then clause boundaries. Paragraphs become section groups.
+// Runs in <1ms so the storyboard appears immediately; visuals are enriched after.
+function fastSplitShots(script) {
+  const paras = (script || "").split(/\n\s*\n+/).map(s => s.trim()).filter(Boolean);
+  const shots = [];
+  paras.forEach((para, pi) => {
+    const section = `Part ${pi + 1}`;
+    const clauses = para
+      .split(/(?<=[.!?])\s+/)                                  // sentences
+      .flatMap(s => wcount(s) > 14 ? s.split(/(?<=[,;:—])\s+/) : [s]) // long ones → clauses
+      .map(s => s.trim()).filter(Boolean);
+    let buf = "";
+    const push = () => { if (buf.trim()) { shots.push({ narration: buf.trim(), section }); buf = ""; } };
+    for (const cl of clauses) {
+      if (wcount(cl) > 14) {                                   // still huge → hard-cut ~12 words
+        push();
+        const w = cl.split(/\s+/);
+        for (let i = 0; i < w.length; i += 12) shots.push({ narration: w.slice(i, i + 12).join(" "), section });
+        continue;
+      }
+      const cand = buf ? buf + " " + cl : cl;
+      if (wcount(cand) <= 14) buf = cand; else { push(); buf = cl; }
+      if (wcount(buf) >= 10) push();                           // aim ~10-14 words per shot
+    }
+    push();
+  });
+  return shots.length ? shots : [{ narration: (script || "").trim().slice(0, 120), section: "Part 1" }];
+}
+
+// Visual-only director prompt: given numbered narration lines, return one concrete
+// frame per line IN ORDER. Small + fast, so batches stream back in near real time.
+const SYS_VISUALS = `You are a storyboard visual director for fast-cut faceless YouTube videos.
+For each numbered narration line you receive, imagine ONE concrete shot that illustrates that beat.
+Return ONLY a JSON array with exactly one object per line, IN THE SAME ORDER, no markdown:
+[{"visual":"30-50 word prompt describing ONE concrete frame: subject, setting, composition, lighting, mood. Visual keywords only, no text in image","broll":["2-4 word stock-footage query","alternative query"],"overlay":"optional on-screen text, max 4 words, or empty string","sourceType":"real or ai"}]`;
 
 export default function Studio({ niche, ctx, clKey, gemKey, gathosKey, gathosVidKey, groqKey, pexKey, pixKey, covKey, ai33Key, ai33Base, back, addH, updateH }) {
   const vidKey = gathosVidKey || gathosKey; // legacy img_live_* keys also work for video
@@ -71,6 +122,7 @@ export default function Studio({ niche, ctx, clKey, gemKey, gathosKey, gathosVid
   const focusRef = useRef("");
   const panelRef = usePopIn([step]);
   const cancelRef = useRef(false);
+  const boardGenRef = useRef(0); // bumped each storyboard build so stale enrichment is ignored
   const vertical = format === "9:16";
   const assetKeys = { coverr: covKey, pixabay: pixKey, pexels: pexKey };
 
@@ -200,7 +252,7 @@ export default function Studio({ niche, ctx, clKey, gemKey, gathosKey, gathosVid
     if (version > 1) extra = `\n\nIMPORTANT: This is VERSION ${version} of this topic. You MUST use COMPLETELY DIFFERENT specific items, examples, facts, and angles. Find obscure, lesser-known, surprising entries. Do NOT repeat the obvious choices.`;
     if (usedItems.length) extra += `\n\nALREADY USED IN PREVIOUS VERSIONS — DO NOT REPEAT ANY OF THESE:\n${usedItems.join(", ")}\n\nYou MUST pick DIFFERENT items that are NOT in this list.`;
     try {
-      const r = await claude(SYS_BRIEF, `Topic: ${ctx.topic}\nNiche: ${niche.name}\nDuration: ${dur} min\n\nSTRICT LIMIT: Stay under 9,000 characters. Detailed but concise.${extra}${lessonsNote(niche.id)}`, clKey);
+      const r = await claude(SYS_BRIEF, `Topic: ${ctx.topic}\nNiche: ${niche.name}\nDuration: ${durMeta(dur).label}\n\nSTRICT LIMIT: Stay under 9,000 characters. Detailed but concise.${extra}${lessonsNote(niche.id)}`, clKey);
       setBrief(r); setBriefOpen(true); persist({ brief: r });
       let hid = ctx.histId;
       if (!hid && addH) { hid = addH(niche.id, ctx.topic, version, r, ""); ctx.histId = hid; }
@@ -218,10 +270,10 @@ export default function Studio({ niche, ctx, clKey, gemKey, gathosKey, gathosVid
     if (!clKey) { setSt("⚠ Set Anthropic API key in Settings"); return ""; }
     setBusy("script"); setSt("Writing full narration script...");
     try {
-      const words = Math.round(+dur * 140);
+      const { label: durLabel, words } = durMeta(dur);
       const guide = brief ? `\n\nUse this creative brief (built from competitor research) as your guide for angle, facts and structure:\n${brief.slice(0, 6000)}` : "";
       const fmtNote = vertical ? "\nFORMAT: This is a vertical YouTube Short — punchy, no slow build, hook in the first 2 seconds." : "";
-      const r = await claude(SYS_SCRIPT, `Topic: ${ctx.topic}\nNiche: ${niche.name}${niche.desc ? ` — ${niche.desc}` : ""}\nVideo length: ${dur} minutes → target ≈${words} words.${fmtNote}${guide}${tplScriptNote()}${lessonsNote(niche.id)}`, clKey, { maxTokens: 16000 });
+      const r = await claude(SYS_SCRIPT, `Topic: ${ctx.topic}\nNiche: ${niche.name}${niche.desc ? ` — ${niche.desc}` : ""}\nTarget length: ${durLabel} → aim for ≈${words} words, landing comfortably in the MIDDLE of that range. Do NOT exceed the upper bound.${fmtNote}${guide}${tplScriptNote()}${lessonsNote(niche.id)}`, clKey, { maxTokens: 16000 });
       const clean = cleanScript(r);
       setScript(clean); persist({ script: clean });
       recordEvent(niche.id, "script_generated", { topic: ctx.topic, words: clean.split(/\s+/).length, template: tpl?.name || null, format });
@@ -230,27 +282,69 @@ export default function Studio({ niche, ctx, clKey, gemKey, gathosKey, gathosVid
     } catch (e) { setSt("⚠ " + e.message); setBusy(""); return ""; }
   };
 
-  // ---- Stage 2: Storyboard (3-5s shots; long scripts are chunked by section) ----
+  // ---- Stage 2: Storyboard ----
+  // Split instantly (deterministic, <1ms) so shots appear right away, then enrich the
+  // visual prompts with AI in small batches that stream back into the scenes.
   const genStoryboard = async (scriptText) => {
     const src = scriptText || script;
     if (!src) { setSt("⚠ Generate the script first"); return []; }
+    const gen = ++boardGenRef.current;
+    cancelRef.current = false;
+    const defType = style === "realasset" ? "real" : "ai";
+    const base = fastSplitShots(src).map(s => ({
+      section: s.section, narration: s.narration, visual: s.narration, broll: [], overlay: "",
+      sourceType: defType, img: null, video: null, credit: null,
+    }));
+    setScenes(base); setAudioSegs([]); persist({ scenes: base });
+    idbDelPrefix(mk("img:")); idbDelPrefix(mk("vid:")); clearSegsIdb(); idbDel(mk("video"));
+    recordEvent(niche.id, "storyboard_built", { shots: base.length, template: tpl?.name || null });
+    setSt(`✂ Split into ${base.length} shots · est. ${fmtTime(base.reduce((t, s) => t + estDuration(s.narration), 0))} — enriching visuals…`);
+    // Enrich in the background: batches stream richer prompts into the scenes as they land.
+    // Await it so callers that chain (Autopilot) receive the fully-enriched shots; the UI
+    // buttons don't await, so they still show the split instantly.
+    return await enrichVisuals(base, gen);
+  };
+
+  // Fill each shot's visual/broll/overlay via AI, batched and streamed into the scenes.
+  // Returns the fully-enriched array (defaults kept for any batch that fails).
+  const enrichVisuals = async (shots, gen) => {
+    const fmtNote = vertical ? "\nFORMAT: vertical 9:16 Shorts — every visual prompt must describe a VERTICAL frame (portrait composition, subject centered)." : "";
+    const result = shots.map(s => ({ ...s }));
+    const B = 10;
+    const batches = [];
+    for (let i = 0; i < shots.length; i += B) batches.push([i, shots.slice(i, i + B)]);
+    let done = 0;
     setBusy("storyboard");
-    try {
-      const chunks = chunkScript(src, 1500);
-      const fmtNote = vertical ? "\nFORMAT: vertical 9:16 Shorts — every visual prompt must describe a VERTICAL frame (portrait composition, subject centered)." : "";
-      let arr = [];
-      for (let c = 0; c < chunks.length; c++) {
-        if (cancelRef.current) break;
-        setSt(chunks.length > 1 ? `Cutting script into shots — part ${c + 1}/${chunks.length}...` : "Cutting script into 3-5s shots...");
-        const raw = await claude(SYS_STORYBOARD, `NICHE: ${niche.name}\nVISUAL STYLE: ${style}${fmtNote}${tplBoardNote()}\n\nSCRIPT${chunks.length > 1 ? ` (PART ${c + 1} of ${chunks.length} — continue from previous parts)` : ""}:\n${chunks[c]}`, clKey, { maxTokens: 32000 });
-        arr = arr.concat(parseJson(raw).map(s => ({ section: s.section || "", narration: s.narration || "", visual: s.visual || "", broll: s.broll || [], overlay: s.overlay || "", sourceType: s.sourceType === "real" ? "real" : "ai", img: null, video: null, credit: null })));
-      }
-      setScenes(arr); setAudioSegs([]); persist({ scenes: arr });
-      idbDelPrefix(mk("img:")); idbDelPrefix(mk("vid:")); clearSegsIdb(); idbDel(mk("video"));
-      recordEvent(niche.id, "storyboard_built", { shots: arr.length, realShots: arr.filter(x => x.sourceType === "real").length, template: tpl?.name || null });
-      setSt(`✅ ${arr.length} shots (3-5s each) · est. runtime ${fmtTime(arr.reduce((t, s) => t + estDuration(s.narration), 0))}`);
-      setBusy(""); return arr;
-    } catch (e) { setSt("⚠ " + e.message); setBusy(""); return []; }
+    const runBatch = async ([offset, group]) => {
+      const numbered = group.map((s, j) => `${j + 1}. ${s.narration}`).join("\n");
+      try {
+        const raw = await claude(SYS_VISUALS, `NICHE: ${niche.name}\nVISUAL STYLE: ${style}${fmtNote}${tplBoardNote()}\n\nNARRATION LINES:\n${numbered}`, clKey, { maxTokens: 4000 });
+        const vis = parseJson(raw);
+        group.forEach((_, j) => {
+          const v = vis[j]; const idx = offset + j;
+          if (v && result[idx]) result[idx] = { ...result[idx], visual: v.visual || result[idx].visual, broll: v.broll || [], overlay: v.overlay || "", sourceType: v.sourceType === "real" ? "real" : (style === "realasset" ? "real" : "ai") };
+        });
+        if (boardGenRef.current !== gen) return; // a newer build started — drop stale UI updates
+        setScenes(prev => {
+          const n = [...prev];
+          group.forEach((_, j) => { const idx = offset + j; if (n[idx] && result[idx]) n[idx] = result[idx]; });
+          persist({ scenes: n });
+          return n;
+        });
+      } catch { /* keep the instant narration-based defaults for this batch */ }
+      done += group.length;
+      if (boardGenRef.current === gen) setSt(`Enriching visuals… ${Math.min(done, shots.length)}/${shots.length} shots`);
+    };
+    // up to 3 batches in flight at once — fast without hammering rate limits
+    for (let i = 0; i < batches.length; i += 3) {
+      if (cancelRef.current || boardGenRef.current !== gen) break;
+      await Promise.all(batches.slice(i, i + 3).map(runBatch));
+    }
+    if (boardGenRef.current === gen) {
+      setBusy("");
+      setSt(`✅ ${shots.length} shots ready · est. runtime ${fmtTime(shots.reduce((t, s) => t + estDuration(s.narration), 0))}`);
+    }
+    return result;
   };
 
   // ---- Stage 3: Visuals (Gathos) ----
