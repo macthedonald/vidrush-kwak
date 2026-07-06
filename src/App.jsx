@@ -108,7 +108,7 @@ function parseArr(raw) {
 
 const P = { HOME: 0, NICHE: 1, STUDIO: 3, FINDER: 4, SETTINGS: 5, VISION: 6 };
 
-export default function App() {
+export default function App({ auth = null }) {
   const [pg, setPg] = useState(P.HOME);
   const [niches, setNiches] = useState([]);
   const [ytKey, setYtKey] = useState("");
@@ -235,12 +235,22 @@ export default function App() {
             </div>}
           </div>)}
         </div>
+        {auth && <div className="nv-user">
+          {auth.image ? <img className="nv-user-av" src={auth.image} alt=""/> : <span className="nv-user-av nv-user-av-ph">{(auth.name||"A").slice(0,1).toUpperCase()}</span>}
+          <div className="nv-user-meta">
+            <span className="nv-user-name" title={auth.name}>{auth.name}</span>
+            {auth.email && <span className="nv-user-email" title={auth.email}>{auth.email}</span>}
+          </div>
+          <button className="nv-user-out" title="Log out" onClick={()=>{ if(confirm("Log out of VidRush?")) auth.signOut(); }}>
+            <svg width="15" height="15" viewBox="0 0 16 16"><path fill="currentColor" d="M6 2a1 1 0 0 1 0 2H4v8h2a1 1 0 1 1 0 2H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h2Zm4.3 2.3a1 1 0 0 1 1.4 0l3 3a1 1 0 0 1 0 1.4l-3 3a1 1 0 1 1-1.4-1.4L11.6 9H7a1 1 0 1 1 0-2h4.6l-1.3-1.3a1 1 0 0 1 0-1.4Z"/></svg>
+          </button>
+        </div>}
       </aside>
       : <button className="nv-expand" onClick={()=>setSb(true)} title="Open sidebar">
           <svg width="14" height="14" viewBox="0 0 16 16"><path fill="currentColor" d="M5.3 2.3a1 1 0 0 0 0 1.4L9.6 8l-4.3 4.3a1 1 0 1 0 1.4 1.4l5-5a1 1 0 0 0 0-1.4l-5-5a1 1 0 0 0-1.4 0Z"/></svg>
         </button>}
       <main className="yt-main"><ErrorBoundary><Suspense fallback={<PageLoader/>}>
-        {pg===P.HOME && <Home niches={niches} sn={sn} go={n=>{openNiche(n);setPg(P.NICHE);}} goFinder={()=>setPg(P.FINDER)} goSettings={()=>setPg(P.SETTINGS)} keysReady={!!(ytKey&&clKey&&gathosKey)} />}
+        {pg===P.HOME && <Home niches={niches} sn={sn} ytKey={ytKey} go={n=>{openNiche(n);setPg(P.NICHE);}} goFinder={()=>setPg(P.FINDER)} goSettings={()=>setPg(P.SETTINGS)} keysReady={!!(ytKey&&clKey&&gathosKey)} />}
         {pg===P.SETTINGS && <SettingsPg niches={niches} keys={{ytKey,clKey,gemKey,gathosKey,gathosVidKey,groqKey,pexKey,pixKey,covKey,ai33Key,ai33Base}} setKeys={k=>{setYtKey(k.ytKey);ss("vr6-yt",k.ytKey);setClKey(k.clKey);ss("vr6-cl",k.clKey);setGemKey(k.gemKey);ss("vr6-gem",k.gemKey);setGathosKey(k.gathosKey);ss("vr8-gat",k.gathosKey);setGathosVidKey(k.gathosVidKey);ss("vr8-gatv",k.gathosVidKey);setGroqKey(k.groqKey);ss("vr8-groq",k.groqKey);setPexKey(k.pexKey);ss("vr7-pex",k.pexKey);setPixKey(k.pixKey);ss("vr7-pix",k.pixKey);setCovKey(k.covKey);ss("vr7-cov",k.covKey);setAi33Key(k.ai33Key);ss("vr7-a33",k.ai33Key);setAi33Base(k.ai33Base);ss("vr7-a33b",k.ai33Base);}} />}
         {pg===P.NICHE && niche && <NichePg niche={niches.find(x=>x.id===niche.id)||niche} niches={niches} ytKey={ytKey} clKey={clKey} sn={sn} back={()=>{setNiche(null);setPg(P.HOME);}} gen={(t,v,refThumb)=>openStudio(t,v||1,null,"",refThumb)} />}
         {pg===P.STUDIO && niche && studioCtx && <Studio niche={niche} ctx={studioCtx} clKey={clKey} gemKey={gemKey} gathosKey={gathosKey} gathosVidKey={gathosVidKey} groqKey={groqKey} pexKey={pexKey} pixKey={pixKey} covKey={covKey} ai33Key={ai33Key} ai33Base={ai33Base} addH={addH} updateH={updateH} back={()=>setPg(P.NICHE)} />}
@@ -358,14 +368,33 @@ function SettingsPg({ keys, setKeys, niches }) {
   </div>);
 }
 
-function Home({ niches, sn, go, goFinder, goSettings, keysReady }) {
+function Home({ niches, sn, ytKey, go, goFinder, goSettings, keysReady }) {
   const pageRef = useReveal([]);
   const [adding, setAdding] = useState(false);
   const [name, setName] = useState(""); const [desc, setDesc] = useState(""); const [cover, setCover] = useState("");
+  const [chUrl, setChUrl] = useState(""); const [chId, setChId] = useState(""); const [fetching, setFetching] = useState(false); const [fetchErr, setFetchErr] = useState("");
   const [openSeo, setOpenSeo] = useState(null);
   const seoPkgs = niches.flatMap(n=>(n.history||[]).filter(h=>h.seo).map(h=>({nicheName:n.name,...h})));
   const handleCover = (e) => { const f=e.target.files[0]; if(!f) return; const r=new FileReader(); r.onload=ev=>setCover(ev.target.result); r.readAsDataURL(f); e.target.value=''; };
-  const add = () => { if(!name.trim()) return; sn([...niches,{id:Date.now(),name:name.trim(),desc:desc.trim(),cover:cover||"",channels:[],history:[]}]); setName(""); setDesc(""); setCover(""); setAdding(false); };
+  const fetchChannel = async () => {
+    const url = chUrl.trim(); if(!url) return;
+    if(!ytKey){ setFetchErr("Add your YouTube API key in Settings first."); return; }
+    setFetching(true); setFetchErr("");
+    try {
+      const id = await resolveChannel(url, ytKey);
+      const r = await ytApi("channels", { part:"snippet", id }, ytKey);
+      const snp = r.items?.[0]?.snippet;
+      if(!snp) throw new Error("Channel not found");
+      setName(snp.title||"");
+      const firstLine = (snp.description||"").split("\n").map(l=>l.trim()).find(Boolean) || "";
+      setDesc(firstLine.slice(0,160));
+      setCover(snp.thumbnails?.high?.url || snp.thumbnails?.medium?.url || snp.thumbnails?.default?.url || "");
+      setChId(id);
+    } catch(e){ setFetchErr(e.message || "Couldn't fetch that channel"); }
+    setFetching(false);
+  };
+  const resetForm = () => { setName(""); setDesc(""); setCover(""); setChUrl(""); setChId(""); setFetchErr(""); };
+  const add = () => { if(!name.trim()) return; sn([...niches,{id:Date.now(),name:name.trim(),desc:desc.trim(),cover:cover||"",channels:chId?[chId]:[],history:[]}]); resetForm(); setAdding(false); };
 
   return (<div className="yt-page" ref={pageRef}>
     <h1 className="yt-page-title nv-h1">Home</h1>
@@ -388,19 +417,28 @@ function Home({ niches, sn, go, goFinder, goSettings, keysReady }) {
       <button className="yt-btn" onClick={()=>setAdding(true)}>New niche</button>
     </div></div>
     {adding && <div className="yt-card"><div className="yt-card-b" style={{marginTop:0}}>
+      <div className="yt-ch-fetch">
+        <label className="yt-label">YouTube channel URL</label>
+        <div className="yt-input-row">
+          <input className="yt-input" placeholder="https://youtube.com/@channel" value={chUrl} onChange={e=>setChUrl(e.target.value)} onKeyDown={e=>e.key==="Enter"&&fetchChannel()} autoFocus/>
+          <button className={`yt-btn ${fetching?'yt-btn-ld':''}`} onClick={fetchChannel} disabled={fetching||!chUrl.trim()}>{fetching?"Fetching…":"Fetch"}</button>
+        </div>
+        <p className="yt-hint">Paste a channel URL — we'll pull the name, description and profile image. You can edit them below.</p>
+        {fetchErr&&<p className="yt-err-inline">⚠ {fetchErr}</p>}
+      </div>
       <div className="yt-niche-form">
         <div className="yt-niche-cover-upload">
           <label className="yt-cover-drop">
             <input type="file" accept="image/*" onChange={handleCover} style={{display:'none'}}/>
-            {cover ? <img src={cover} className="yt-cover-preview" alt=""/> : <span className="yt-cover-text">Add cover</span>}
+            {cover ? <img src={cover} className="yt-cover-preview" alt=""/> : <span className="yt-cover-text">Profile image</span>}
           </label>
         </div>
         <div className="yt-niche-form-fields">
-          <div><label className="yt-label">Name</label><input className="yt-input" placeholder="e.g. Ancient Rome mysteries" value={name} onChange={e=>setName(e.target.value)} autoFocus/></div>
+          <div><label className="yt-label">Name</label><input className="yt-input" placeholder="e.g. Ancient Rome mysteries" value={name} onChange={e=>setName(e.target.value)}/></div>
           <div><label className="yt-label">Description</label><input className="yt-input" placeholder="One line on what this channel covers" value={desc} onChange={e=>setDesc(e.target.value)}/></div>
         </div>
       </div>
-      <div className="yt-btn-row" style={{marginTop:14}}><button className="yt-btn" onClick={add}>Create niche</button><button className="yt-btn-o" onClick={()=>{setAdding(false);setCover("");}}>Cancel</button></div>
+      <div className="yt-btn-row" style={{marginTop:14}}><button className="yt-btn" onClick={add} disabled={!name.trim()}>Create niche</button><button className="yt-btn-o" onClick={()=>{setAdding(false);resetForm();}}>Cancel</button></div>
     </div></div>}
     {niches.length===0&&!adding ? <div className="yt-empty-state">
         <p className="yt-empty-title">No niches yet</p>
@@ -688,6 +726,14 @@ button{font-family:var(--font)}
 .nv-nav button.on{background:var(--surface3);color:var(--text);font-weight:600}
 .nv-sec{font-size:11px;font-weight:600;letter-spacing:.4px;text-transform:uppercase;color:var(--text3);padding:0 10px;margin-bottom:6px}
 .nv-list{flex:1}
+.nv-user{display:flex;align-items:center;gap:9px;margin-top:10px;padding:8px;border-top:1px solid var(--border)}
+.nv-user-av{width:30px;height:30px;border-radius:50%;object-fit:cover;flex-shrink:0}
+.nv-user-av-ph{display:inline-flex;align-items:center;justify-content:center;background:var(--text);color:var(--bg);font-size:12px;font-weight:700}
+.nv-user-meta{display:flex;flex-direction:column;min-width:0;flex:1}
+.nv-user-name{font-size:12.5px;font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.nv-user-email{font-size:11px;color:var(--text3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.nv-user-out{background:none;border:none;color:var(--text3);cursor:pointer;padding:7px;border-radius:var(--radius3);display:flex;align-items:center;flex-shrink:0}
+.nv-user-out:hover{background:var(--surface2);color:var(--red)}
 .nv-side-empty{font-size:12.5px;color:var(--text3);padding:2px 10px}
 .nv-item{display:block;width:100%;background:none;border:none;text-align:left;padding:5px 10px;border-radius:var(--radius3);font-size:13.5px;color:var(--text2);cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;transition:background .12s}
 .nv-item:hover{background:var(--surface2);color:var(--text)}
@@ -850,6 +896,8 @@ button{font-family:var(--font)}
 .yt-topic-done{opacity:.65}
 .yt-topic-h{display:flex;justify-content:space-between;gap:10px;align-items:start}
 .yt-topic-t{font-size:14px;font-weight:600;line-height:1.45}
+.yt-ch-fetch{margin-bottom:16px;padding-bottom:16px;border-bottom:1px solid var(--border)}
+.yt-err-inline{color:var(--red);font-size:12.5px;margin-top:8px}
 .yt-topic-badges{display:flex;gap:6px;align-items:center;flex-shrink:0}
 .yt-topic-seo{font-size:10px;font-weight:700;color:#fff;padding:2px 8px;border-radius:9px;white-space:nowrap}
 .yt-badge-used{font-size:10px;font-weight:600;background:var(--surface2);color:var(--text2);padding:2px 8px;border-radius:9px;white-space:nowrap}

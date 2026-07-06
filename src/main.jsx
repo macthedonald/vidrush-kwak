@@ -35,15 +35,17 @@ function CloudApp() {
           <GateStyle />
         </SignedOut>
         <SignedIn>
-          <CloudGate convexReact={mods.convexReact} />
+          <CloudGate convexReact={mods.convexReact} clerk={mods.clerk} />
         </SignedIn>
       </ConvexProviderWithClerk>
     </ClerkProvider>
   );
 }
 
-function CloudGate({ convexReact }) {
+function CloudGate({ convexReact, clerk }) {
   const { useQuery, useMutation } = convexReact;
+  const { user } = clerk.useUser();
+  const { signOut } = clerk.useClerk();
   const rows = useQuery(fn.list);
   const setKv = useMutation(fn.set);
   const setMany = useMutation(fn.setMany);
@@ -70,7 +72,13 @@ function CloudGate({ convexReact }) {
   }, [rows]);
 
   if (!ready) return <Splash label="Syncing your workspace…" />;
-  return <App />;
+  const auth = {
+    name: user?.fullName || user?.username || user?.primaryEmailAddress?.emailAddress?.split("@")[0] || "Account",
+    email: user?.primaryEmailAddress?.emailAddress || "",
+    image: user?.imageUrl || "",
+    signOut: () => signOut(),
+  };
+  return <App auth={auth} />;
 }
 
 function Splash({ label }) {
