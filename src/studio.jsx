@@ -633,7 +633,7 @@ export default function Studio({ niche, ctx, clKey, gemKey, gathosKey, gathosVid
       });
       const w = vertical ? (res === "1080" ? 1080 : 720) : (res === "1080" ? 1920 : 1280);
       const h = vertical ? (res === "1080" ? 1920 : 1280) : (res === "1080" ? 1080 : 720);
-      const common = { shots: prepared, audioSegs: segsOut, total, music: music ? { buffer: music.buffer, volume: musicVol } : null, style, width: w, height: h, subtitles: subs, onProgress: p => setRenderProg(p) };
+      const common = { shots: prepared, audioSegs: segsOut, total, music: music ? { buffer: music.buffer, volume: musicVol } : null, style, width: w, height: h, subtitles: subs, brand: ls("vr8-brand", null), onProgress: p => setRenderProg(p) };
       let out;
       if (fastOk) {
         setSt("Rendering (fast encoder)...");

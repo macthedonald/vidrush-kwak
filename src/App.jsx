@@ -274,6 +274,11 @@ function SettingsPg({ keys, setKeys, niches }) {
   const [memText, setMemText] = useState("");
   const [k, setK] = useState(keys);
   const [saved, setSaved] = useState(false);
+  const [brand, setBrand] = useState(() => ls("vr8-brand", { channel: "", accent: "#ff2d55", logo: "", wmPos: "br", wmOpacity: 0.7, wmScale: 0.1 }));
+  const [brandSaved, setBrandSaved] = useState(false);
+  const setBrandK = (patch) => { setBrand(b => ({ ...b, ...patch })); setBrandSaved(false); };
+  const handleLogo = (e) => { const f = e.target.files[0]; if (!f) return; const r = new FileReader(); r.onload = ev => setBrandK({ logo: ev.target.result }); r.readAsDataURL(f); e.target.value = ""; };
+  const saveBrand = () => { ss("vr8-brand", brand); setBrandSaved(true); };
   const row = (field, label, desc, ph, type="password") => (
     <div className="nv-set-row" key={field}>
       <div className="nv-set-info">
@@ -315,6 +320,38 @@ function SettingsPg({ keys, setKeys, niches }) {
     <div className="nv-set-foot">
       <button className="yt-btn" onClick={()=>{setKeys(k);setSaved(true);}}>Save changes</button>
       {saved && <span className="nv-set-saved">Saved</span>}
+    </div>
+
+    <div className="nv-set-group" style={{marginTop:28}}>
+      <div className="nv-set-group-t">Brand kit</div>
+      <p className="nv-set-desc" style={{margin:"0 0 12px"}}>Applied to every rendered video — a logo watermark, your channel name as a lower-third in the opening, and an accent color on the captions.</p>
+      <div className="nv-set-row">
+        <div className="nv-set-info"><div className="nv-set-label">Logo watermark</div><div className="nv-set-desc">A transparent PNG works best.</div></div>
+        <div className="yt-btn-row" style={{alignItems:"center"}}>
+          {brand.logo && <img src={brand.logo} alt="" style={{height:34,maxWidth:110,objectFit:"contain",background:"#00000008",borderRadius:6,padding:2}}/>}
+          <label className="yt-btn-o" style={{cursor:"pointer"}}>{brand.logo?"Change":"Upload"}<input type="file" accept="image/*" onChange={handleLogo} style={{display:"none"}}/></label>
+          {brand.logo && <button className="yt-btn-o" onClick={()=>setBrandK({logo:""})}>Remove</button>}
+        </div>
+      </div>
+      <div className="nv-set-row">
+        <div className="nv-set-info"><div className="nv-set-label">Channel name</div><div className="nv-set-desc">Shown as a lower-third for the first few seconds.</div></div>
+        <input className="yt-input nv-set-input" type="text" placeholder="Your channel" value={brand.channel} onChange={e=>setBrandK({channel:e.target.value})}/>
+      </div>
+      <div className="nv-set-row">
+        <div className="nv-set-info"><div className="nv-set-label">Accent color</div><div className="nv-set-desc">Highlights the active caption word and the lower-third.</div></div>
+        <input type="color" value={brand.accent||"#ff2d55"} onChange={e=>setBrandK({accent:e.target.value})} style={{width:46,height:32,border:"1px solid var(--border)",borderRadius:6,background:"none",cursor:"pointer"}}/>
+      </div>
+      <div className="nv-set-row">
+        <div className="nv-set-info"><div className="nv-set-label">Watermark position</div></div>
+        <select className="yt-input nv-set-input" value={brand.wmPos||"br"} onChange={e=>setBrandK({wmPos:e.target.value})}>
+          <option value="tl">Top left</option><option value="tr">Top right</option><option value="bl">Bottom left</option><option value="br">Bottom right</option>
+        </select>
+      </div>
+      <div className="nv-set-row">
+        <div className="nv-set-info"><div className="nv-set-label">Watermark opacity</div><div className="nv-set-desc">{Math.round((brand.wmOpacity??0.7)*100)}%</div></div>
+        <input type="range" min="0.2" max="1" step="0.05" value={brand.wmOpacity??0.7} onChange={e=>setBrandK({wmOpacity:+e.target.value})}/>
+      </div>
+      <div className="yt-btn-row" style={{marginTop:12}}><button className="yt-btn" onClick={saveBrand}>Save brand kit</button>{brandSaved && <span className="nv-set-saved">Saved</span>}</div>
     </div>
 
     <div className="nv-set-group" style={{marginTop:28}}>
