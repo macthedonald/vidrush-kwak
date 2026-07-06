@@ -607,8 +607,13 @@ function NichePg({ niche, niches, ytKey, clKey, sn, back, gen }) {
       </div>
       <div className="yt-topics">{topics.map((t,i)=>{
       const vc=getVersionCount(t.title); const done=vc>0;
+      const seo=heuristicScore(t.title);
       return <div key={i} className={`yt-topic ${done?'yt-topic-done':''}`}>
-        <div className="yt-topic-h"><span className="yt-topic-t">{t.title}</span>{done&&<span className="yt-badge-used">USED ×{vc}</span>}</div>
+        <div className="yt-topic-h"><span className="yt-topic-t">{t.title}</span>
+          <span className="yt-topic-badges">
+            <span className="yt-topic-seo" style={{background:seo>=70?"var(--green)":seo>=45?"var(--amber)":"var(--red)"}} title="SEO score — title length, numbers, power words, and overlap with what's ranking in this niche">SEO {seo}</span>
+            {done&&<span className="yt-badge-used">USED ×{vc}</span>}
+          </span></div>
         {t.angle&&<p className="yt-topic-a">{t.angle}</p>}
         {t.why&&<p className="yt-topic-w">{t.why}</p>}
         {t.inspired_by&&<p className="yt-topic-i">{t.inspired_by}</p>}
@@ -845,6 +850,8 @@ button{font-family:var(--font)}
 .yt-topic-done{opacity:.65}
 .yt-topic-h{display:flex;justify-content:space-between;gap:10px;align-items:start}
 .yt-topic-t{font-size:14px;font-weight:600;line-height:1.45}
+.yt-topic-badges{display:flex;gap:6px;align-items:center;flex-shrink:0}
+.yt-topic-seo{font-size:10px;font-weight:700;color:#fff;padding:2px 8px;border-radius:9px;white-space:nowrap}
 .yt-badge-used{font-size:10px;font-weight:600;background:var(--surface2);color:var(--text2);padding:2px 8px;border-radius:9px;white-space:nowrap}
 .yt-topic-a{font-size:13px;color:var(--text2);margin-top:5px;line-height:1.5}
 .yt-topic-w,.yt-topic-i{font-size:12px;color:var(--text3);margin-top:4px}
