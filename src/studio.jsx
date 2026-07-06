@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import {
   claude, parseJson, SYS_BRIEF, SYS_SCRIPT, SYS_SEO, STYLE_WRAP,
   geminiTTS, groqTranscribe, concatPcm, pcmToWav, pcmToMp3,
-  coverrVideos, pixabayVideos, pixabayPhotos, pexelsVideos, pexelsPhotos, sourceRealAsset, wikimediaMedia, archiveVideos, archiveResolveFile, youtubeCC, urlToDataURL,
+  coverrVideos, pixabayVideos, pixabayPhotos, pexelsVideos, pexelsPhotos, sourceRealAsset, wikimediaMedia, archiveVideos, archiveResolveFile, naraMedia, youtubeCC, urlToDataURL,
   makeZip, fmtTime, estDuration, renderVideo, renderVideoFast, canRenderFast, loadImage, loadVideoEl, pickMime,
 } from "./pipeline";
 import { gathosImage, gathosVideo, GATHOS_STYLE } from "./gathos";
@@ -88,7 +88,7 @@ For each numbered narration line you receive, imagine ONE concrete shot that ill
 Return ONLY a JSON array with exactly one object per line, IN THE SAME ORDER, no markdown:
 [{"visual":"30-50 word prompt describing ONE concrete frame: subject, setting, composition, lighting, mood. Visual keywords only, no text in image","broll":["2-4 SPECIFIC search queries: use the real proper nouns, names, places, objects or events named in the narration (e.g. 'Colosseum Rome interior', 'Julius Caesar marble bust', 'Apollo 11 launch') — concrete and searchable, NOT generic words like 'success' or 'history'","second more specific query","a broader backup query"],"overlay":"optional on-screen text, max 4 words, or empty string","sourceType":"real when this beat depicts a real person/place/event/object that genuine archival footage would show, otherwise ai"}]`;
 
-export default function Studio({ niche, ctx, clKey, gemKey, gathosKey, gathosVidKey, groqKey, ytKey, pexKey, pixKey, covKey, ai33Key, ai33Base, back, addH, updateH }) {
+export default function Studio({ niche, ctx, clKey, gemKey, gathosKey, gathosVidKey, groqKey, ytKey, pexKey, pixKey, covKey, naraKey, ai33Key, ai33Base, back, addH, updateH }) {
   const vidKey = gathosVidKey || gathosKey; // legacy img_live_* keys also work for video
   const storeKey = `vr7-studio-${niche.id}-${ctx.histId || ctx.topic}`;
   const mk = k => `${storeKey}:${k}`;
@@ -126,7 +126,7 @@ export default function Studio({ niche, ctx, clKey, gemKey, gathosKey, gathosVid
   const cancelRef = useRef(false);
   const boardGenRef = useRef(0); // bumped each storyboard build so stale enrichment is ignored
   const vertical = format === "9:16";
-  const assetKeys = { coverr: covKey, pixabay: pixKey, pexels: pexKey };
+  const assetKeys = { coverr: covKey, pixabay: pixKey, pexels: pexKey, nara: naraKey };
 
   // hydrate: text from localStorage, heavy media from IndexedDB
   useEffect(() => {
@@ -464,6 +464,7 @@ export default function Studio({ niche, ctx, clKey, gemKey, gathosKey, gathosVid
       let results = [];
       if (tab === "wikimedia") results = await wikimediaMedia(q, 12);
       else if (tab === "archive") results = await archiveVideos(q, 12);
+      else if (tab === "nara") results = await naraMedia(q, naraKey, 12);
       else if (tab === "youtube") results = await youtubeCC(q, ytKey, 12);
       else if (tab === "coverr") results = covKey ? await coverrVideos(q, covKey, 8) : [];
       else if (tab === "pixabay") results = pixKey ? [...await pixabayVideos(q, pixKey, 4), ...await pixabayPhotos(q, pixKey, 4)] : [];
@@ -791,6 +792,7 @@ export default function Studio({ niche, ctx, clKey, gemKey, gathosKey, gathosVid
         <div className="vs-src-tabs">
           <button className={`vs-src-tab ${srcPick.tab === "wikimedia" ? "active" : ""}`} onClick={() => loadSourceResults(srcPick.sceneIdx, srcPick.query, "wikimedia")}>Wikimedia</button>
           <button className={`vs-src-tab ${srcPick.tab === "archive" ? "active" : ""}`} onClick={() => loadSourceResults(srcPick.sceneIdx, srcPick.query, "archive")}>Archive video</button>
+          {naraKey && <button className={`vs-src-tab ${srcPick.tab === "nara" ? "active" : ""}`} onClick={() => loadSourceResults(srcPick.sceneIdx, srcPick.query, "nara")}>Nat. Archives</button>}
           {ytKey && <button className={`vs-src-tab ${srcPick.tab === "youtube" ? "active" : ""}`} onClick={() => loadSourceResults(srcPick.sceneIdx, srcPick.query, "youtube")}>YouTube (CC)</button>}
           {covKey && <button className={`vs-src-tab ${srcPick.tab === "coverr" ? "active" : ""}`} onClick={() => loadSourceResults(srcPick.sceneIdx, srcPick.query, "coverr")}>Coverr</button>}
           {pixKey && <button className={`vs-src-tab ${srcPick.tab === "pixabay" ? "active" : ""}`} onClick={() => loadSourceResults(srcPick.sceneIdx, srcPick.query, "pixabay")}>Pixabay</button>}
@@ -800,6 +802,7 @@ export default function Studio({ niche, ctx, clKey, gemKey, gathosKey, gathosVid
         </div>
         {srcPick.tab === "wikimedia" && <p className="yt-hint">Real, openly-licensed media of the actual subject from Wikimedia Commons — credit is auto-attached.</p>}
         {srcPick.tab === "archive" && <p className="yt-hint">Public-domain archival video from the Internet Archive — great for real historical footage.</p>}
+        {srcPick.tab === "nara" && <p className="yt-hint">Real public-domain footage & photos from the U.S. National Archives — actual government/historical records of the subject. Credit auto-attached.</p>}
         {srcPick.tab === "youtube" && <p className="yt-hint">⚖ Creative-Commons YouTube only (reusable with credit). Keep clips short and always under your own narration/commentary so it stays transformative & monetization-safe. Attribution is auto-added.</p>}
         {srcPick.loading && <div className="yt-ld-box"><div className="yt-spin"/></div>}
         {srcPick.err && <p className="yt-st err">⚠ {srcPick.err}</p>}

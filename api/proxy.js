@@ -17,6 +17,8 @@ const ALLOW = [
   /(^|\.)wikimedia\.org$/,
   /(^|\.)wikipedia\.org$/,
   /(^|\.)archive\.org$/,
+  /(^|\.)archives\.gov$/,
+  /(^|\.)s3\.amazonaws\.com$/,
 ];
 
 export default async function handler(request) {
@@ -28,7 +30,7 @@ export default async function handler(request) {
     return new Response("host not allowed", { status: 403 });
   }
   const headers = {};
-  for (const h of ["authorization", "xi-api-key", "content-type", "accept"]) {
+  for (const h of ["authorization", "xi-api-key", "x-api-key", "content-type", "accept"]) {
     const v = request.headers.get(h);
     if (v) headers[h] = v;
   }
