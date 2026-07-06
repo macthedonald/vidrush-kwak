@@ -10,6 +10,8 @@ const ALLOW = [
   /(^|\.)pixabay\.com$/,
   /(^|\.)coverr\.co$/,
   /(^|\.)vimeocdn\.com$/,
+  /(^|\.)wikimedia\.org$/,
+  /(^|\.)wikipedia\.org$/,
 ];
 
 async function handle(req, res, next) {
@@ -28,6 +30,8 @@ async function handle(req, res, next) {
   for (const h of ["authorization", "xi-api-key", "content-type", "accept"]) {
     if (req.headers[h]) headers[h] = req.headers[h];
   }
+  // Browsers can't set User-Agent from fetch; some APIs (e.g. Wikimedia) 403 without one.
+  headers["user-agent"] = "VidRush/1.0 (+https://kakkao.vercel.app)";
   const chunks = [];
   for await (const c of req) chunks.push(c);
   const body = req.method === "GET" || req.method === "HEAD" ? undefined : Buffer.concat(chunks);

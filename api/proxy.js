@@ -14,6 +14,8 @@ const ALLOW = [
   /(^|\.)pixabay\.com$/,
   /(^|\.)coverr\.co$/,
   /(^|\.)vimeocdn\.com$/,
+  /(^|\.)wikimedia\.org$/,
+  /(^|\.)wikipedia\.org$/,
 ];
 
 export default async function handler(request) {
@@ -29,6 +31,8 @@ export default async function handler(request) {
     const v = request.headers.get(h);
     if (v) headers[h] = v;
   }
+  // Browsers can't set User-Agent from fetch; some APIs (e.g. Wikimedia) 403 without one.
+  headers["user-agent"] = "VidRush/1.0 (+https://kakkao.vercel.app)";
   const method = request.method;
   const body = method === "GET" || method === "HEAD" ? undefined : await request.arrayBuffer();
   let upstream;
