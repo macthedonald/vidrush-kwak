@@ -16,6 +16,8 @@ const PROXY_HOSTS = [
   /(^|\.)wikimedia\.org$/,
   /(^|\.)wikipedia\.org$/,
   /(^|\.)archive\.org$/,
+  /(^|\.)archives\.gov$/,
+  /(^|\.)s3\.amazonaws\.com$/,
 ];
 
 export function needsProxy(url) {

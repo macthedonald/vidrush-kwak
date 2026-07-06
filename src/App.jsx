@@ -120,6 +120,7 @@ export default function App({ auth = null }) {
   const [pexKey, setPexKey] = useState("");
   const [pixKey, setPixKey] = useState("");
   const [covKey, setCovKey] = useState("");
+  const [naraKey, setNaraKey] = useState("");
   const [ai33Key, setAi33Key] = useState("");
   const [ai33Base, setAi33Base] = useState(AI33_DEFAULT_BASE);
   const [niche, setNiche] = useState(null);
@@ -127,7 +128,7 @@ export default function App({ auth = null }) {
   const [ok, setOk] = useState(false);
   const [sb, setSb] = useState(true);
 
-  useEffect(() => { setNiches(ls("vr6-niches", ls("vr5-niches",[]))); setYtKey(ls("vr6-yt", ls("vr5-yt",""))); setClKey(ls("vr6-cl", ls("vr5-cl",""))); setGemKey(ls("vr6-gem","")); setPexKey(ls("vr7-pex","")); setPixKey(ls("vr7-pix","")); setCovKey(ls("vr7-cov","")); setAi33Key(ls("vr7-a33","")); setGathosKey(ls("vr8-gat","")); setGathosVidKey(ls("vr8-gatv","")); setGroqKey(ls("vr8-groq","")); const a33b=ls("vr7-a33b",AI33_DEFAULT_BASE); setAi33Base(a33b==="https://ai33.pro/api"?AI33_DEFAULT_BASE:a33b); setOk(true); }, []);
+  useEffect(() => { setNiches(ls("vr6-niches", ls("vr5-niches",[]))); setYtKey(ls("vr6-yt", ls("vr5-yt",""))); setClKey(ls("vr6-cl", ls("vr5-cl",""))); setGemKey(ls("vr6-gem","")); setPexKey(ls("vr7-pex","")); setPixKey(ls("vr7-pix","")); setCovKey(ls("vr7-cov","")); setNaraKey(ls("vr8-nara","")); setAi33Key(ls("vr7-a33","")); setGathosKey(ls("vr8-gat","")); setGathosVidKey(ls("vr8-gatv","")); setGroqKey(ls("vr8-groq","")); const a33b=ls("vr7-a33b",AI33_DEFAULT_BASE); setAi33Base(a33b==="https://ai33.pro/api"?AI33_DEFAULT_BASE:a33b); setOk(true); }, []);
   const sn = n => { setNiches(n); ss("vr6-niches",n); };
   const openNiche = (n) => {
     // Always read fresh from localStorage to avoid stale closures
@@ -251,9 +252,9 @@ export default function App({ auth = null }) {
         </button>}
       <main className="yt-main"><ErrorBoundary><Suspense fallback={<PageLoader/>}>
         {pg===P.HOME && <Home niches={niches} sn={sn} ytKey={ytKey} go={n=>{openNiche(n);setPg(P.NICHE);}} goFinder={()=>setPg(P.FINDER)} goSettings={()=>setPg(P.SETTINGS)} keysReady={!!(ytKey&&clKey&&gathosKey)} />}
-        {pg===P.SETTINGS && <SettingsPg niches={niches} keys={{ytKey,clKey,gemKey,gathosKey,gathosVidKey,groqKey,pexKey,pixKey,covKey,ai33Key,ai33Base}} setKeys={k=>{setYtKey(k.ytKey);ss("vr6-yt",k.ytKey);setClKey(k.clKey);ss("vr6-cl",k.clKey);setGemKey(k.gemKey);ss("vr6-gem",k.gemKey);setGathosKey(k.gathosKey);ss("vr8-gat",k.gathosKey);setGathosVidKey(k.gathosVidKey);ss("vr8-gatv",k.gathosVidKey);setGroqKey(k.groqKey);ss("vr8-groq",k.groqKey);setPexKey(k.pexKey);ss("vr7-pex",k.pexKey);setPixKey(k.pixKey);ss("vr7-pix",k.pixKey);setCovKey(k.covKey);ss("vr7-cov",k.covKey);setAi33Key(k.ai33Key);ss("vr7-a33",k.ai33Key);setAi33Base(k.ai33Base);ss("vr7-a33b",k.ai33Base);}} />}
+        {pg===P.SETTINGS && <SettingsPg niches={niches} keys={{ytKey,clKey,gemKey,gathosKey,gathosVidKey,groqKey,pexKey,pixKey,covKey,naraKey,ai33Key,ai33Base}} setKeys={k=>{setYtKey(k.ytKey);ss("vr6-yt",k.ytKey);setClKey(k.clKey);ss("vr6-cl",k.clKey);setGemKey(k.gemKey);ss("vr6-gem",k.gemKey);setGathosKey(k.gathosKey);ss("vr8-gat",k.gathosKey);setGathosVidKey(k.gathosVidKey);ss("vr8-gatv",k.gathosVidKey);setGroqKey(k.groqKey);ss("vr8-groq",k.groqKey);setPexKey(k.pexKey);ss("vr7-pex",k.pexKey);setPixKey(k.pixKey);ss("vr7-pix",k.pixKey);setCovKey(k.covKey);ss("vr7-cov",k.covKey);setNaraKey(k.naraKey);ss("vr8-nara",k.naraKey);setAi33Key(k.ai33Key);ss("vr7-a33",k.ai33Key);setAi33Base(k.ai33Base);ss("vr7-a33b",k.ai33Base);}} />}
         {pg===P.NICHE && niche && <NichePg niche={niches.find(x=>x.id===niche.id)||niche} niches={niches} ytKey={ytKey} clKey={clKey} sn={sn} back={()=>{setNiche(null);setPg(P.HOME);}} gen={(t,v,refThumb)=>openStudio(t,v||1,null,"",refThumb)} />}
-        {pg===P.STUDIO && niche && studioCtx && <Studio niche={niche} ctx={studioCtx} clKey={clKey} gemKey={gemKey} gathosKey={gathosKey} gathosVidKey={gathosVidKey} groqKey={groqKey} ytKey={ytKey} pexKey={pexKey} pixKey={pixKey} covKey={covKey} ai33Key={ai33Key} ai33Base={ai33Base} addH={addH} updateH={updateH} back={()=>setPg(P.NICHE)} />}
+        {pg===P.STUDIO && niche && studioCtx && <Studio niche={niche} ctx={studioCtx} clKey={clKey} gemKey={gemKey} gathosKey={gathosKey} gathosVidKey={gathosVidKey} groqKey={groqKey} ytKey={ytKey} pexKey={pexKey} pixKey={pixKey} covKey={covKey} naraKey={naraKey} ai33Key={ai33Key} ai33Base={ai33Base} addH={addH} updateH={updateH} back={()=>setPg(P.NICHE)} />}
         {pg===P.FINDER && <NicheFinder ytKey={ytKey} clKey={clKey} niches={niches} sn={sn} goNiche={n=>{openNiche(n);setPg(P.NICHE);}} />}
         {pg===P.VISION && <Vision gemKey={gemKey} />}
       </Suspense></ErrorBoundary></main>
@@ -262,7 +263,7 @@ export default function App({ auth = null }) {
   </div>);
 }
 
-const P_LABELS = { ytKey:"YouTube Data API", clKey:"Anthropic", gemKey:"Google Gemini", ai33Key:"AI33", ai33Base:"AI33 base URL", covKey:"Coverr", pixKey:"Pixabay", pexKey:"Pexels" };
+const P_LABELS = { ytKey:"YouTube Data API", clKey:"Anthropic", gemKey:"Google Gemini", ai33Key:"AI33", ai33Base:"AI33 base URL", covKey:"Coverr", pixKey:"Pixabay", pexKey:"Pexels", naraKey:"U.S. National Archives" };
 
 function SettingsPg({ keys, setKeys, niches }) {
   const [memOpen, setMemOpen] = useState(null);
@@ -299,10 +300,12 @@ function SettingsPg({ keys, setKeys, niches }) {
     </div>
 
     <div className="nv-set-group">
-      <div className="nv-set-group-t">Stock footage</div>
-      {row("covKey","Coverr","Primary source for real b-roll clips.","Bearer key…")}
-      {row("pixKey","Pixabay","Primary source for real clips and photos.","4859…")}
-      {row("pexKey","Pexels","Fallback source when the others come up empty.","563492ad…")}
+      <div className="nv-set-group-t">Footage sources</div>
+      <p className="nv-set-desc" style={{margin:"0 0 10px"}}>Wikimedia Commons and the Internet Archive are built in (no key needed). Add keys below for more sources.</p>
+      {row("naraKey","U.S. National Archives","Real public-domain archival footage & photos of the actual subject (catalog.archives.gov).","NARA API key…")}
+      {row("covKey","Coverr","Stock b-roll clips.","Bearer key…")}
+      {row("pixKey","Pixabay","Stock clips and photos.","4859…")}
+      {row("pexKey","Pexels","Stock fallback when the others come up empty.","563492ad…")}
     </div>
 
     <div className="nv-set-foot">

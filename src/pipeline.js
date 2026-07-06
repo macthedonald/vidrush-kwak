@@ -431,7 +431,7 @@ export function queryTerms(s) {
   return new Set(String(s || "").toLowerCase().split(/[^a-z0-9]+/).filter(w => w.length > 2 && !STOP.has(w)));
 }
 // Sources that hold real footage of the actual subject (vs generic stock) get a ranking bonus.
-const REAL_SOURCES = new Set(["Wikimedia Commons", "Internet Archive"]);
+const REAL_SOURCES = new Set(["Wikimedia Commons", "Internet Archive", "U.S. National Archives"]);
 // Relevance 0..1: term overlap with the shot's search terms, plus small motion/real-subject bonuses.
 export function scoreAsset(qterms, asset) {
   const at = queryTerms([asset.title, asset.credit, (asset.tags || []).join(" ")].join(" "));
@@ -498,6 +498,41 @@ export async function archiveResolveFile(asset) {
   return { ...asset, src: `https://archive.org/download/${asset.identifier}/${encodeURIComponent(pick.name)}`, _needsResolve: false };
 }
 
+// ---------- U.S. National Archives (NARA): real public-domain archival footage of the subject ----------
+// Official Catalog API v2 — GET /api/v2/records/search with an `x-api-key` header. Defensive parser:
+// the digital-object nesting has shifted between API revisions, so we accept the common variants.
+export async function naraMedia(query, key, limit = 8) {
+  if (!key) throw new Error("Add your National Archives (NARA) API key in Settings");
+  const u = `https://catalog.archives.gov/api/v2/records/search?q=${encodeURIComponent(query)}&limit=${limit}&availableOnline=true`;
+  const r = await pfetch(u, { headers: { "x-api-key": key } });
+  if (!r.ok) throw new Error(`National Archives ${r.status}`);
+  const d = await r.json().catch(() => ({}));
+  const hits = d.body?.hits?.hits || d.hits?.hits || d.hits || [];
+  const out = [];
+  for (const h of hits) {
+    const rec = h.fields?.record || h.fields || h._source?.record || h._source || h.record || {};
+    const objs = rec.digitalObjects || rec.record?.digitalObjects || [];
+    const title = rec.title || rec.record?.title || "National Archives record";
+    const naId = rec.naId || rec.record?.naId || h._id;
+    for (const o of objs) {
+      const url = o.objectUrl || o.url || o.objectFileUrl;
+      if (!url) continue;
+      const type = `${o.objectType || ""} ${url}`.toLowerCase();
+      const kind = /video|mp4|mpeg|mov|\.m4v|\.webm/.test(type) ? "video"
+        : /image|photo|jpg|jpeg|png|gif|tif/.test(type) ? "photo" : null;
+      if (!kind) continue; // skip audio / pdf / other
+      out.push({
+        kind, src: url, thumb: o.thumbnailUrl || o.thumbnail || url, title,
+        credit: `${title} — U.S. National Archives${naId ? " (NAID " + naId + ")" : ""}`,
+        url: naId ? `https://catalog.archives.gov/id/${naId}` : "https://catalog.archives.gov",
+        source: "U.S. National Archives",
+      });
+      break; // one representative object per record
+    }
+  }
+  return out;
+}
+
 // ---------- YouTube: Creative-Commons–licensed results only (reusable with attribution) ----------
 // CC-BY YouTube videos are the monetization-safe subset — legally reusable when credited, and used
 // as short, transformed b-roll under original narration. Manual/curated (picker), never auto-sourced.
@@ -529,6 +564,7 @@ export async function sourceRealAsset(queries, keys = {}, { real = true } = {}) 
   if (real) {
     jobs.push(wikimediaMedia(q0, 8)); if (q1 !== q0) jobs.push(wikimediaMedia(q1, 6));
     jobs.push(archiveVideos(q0, 6));
+    if (keys.nara) jobs.push(naraMedia(q0, keys.nara, 8));
   }
   if (keys.coverr) jobs.push(coverrVideos(q0, keys.coverr, 4));
   if (keys.pixabay) { jobs.push(pixabayVideos(q0, keys.pixabay, 4)); jobs.push(pixabayPhotos(q0, keys.pixabay, 4)); }

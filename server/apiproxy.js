@@ -13,6 +13,8 @@ const ALLOW = [
   /(^|\.)wikimedia\.org$/,
   /(^|\.)wikipedia\.org$/,
   /(^|\.)archive\.org$/,
+  /(^|\.)archives\.gov$/,
+  /(^|\.)s3\.amazonaws\.com$/,
 ];
 
 async function handle(req, res, next) {
@@ -28,7 +30,7 @@ async function handle(req, res, next) {
     res.statusCode = 403; res.end("host not allowed"); return;
   }
   const headers = {};
-  for (const h of ["authorization", "xi-api-key", "content-type", "accept"]) {
+  for (const h of ["authorization", "xi-api-key", "x-api-key", "content-type", "accept"]) {
     if (req.headers[h]) headers[h] = req.headers[h];
   }
   // Browsers can't set User-Agent from fetch; some APIs (e.g. Wikimedia) 403 without one.
