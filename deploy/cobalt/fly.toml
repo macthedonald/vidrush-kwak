@@ -1,0 +1,24 @@
+# Fly.io deploy for a cobalt instance. From this folder:
+#   fly launch --copy-config --no-deploy      (pick an app name + region)
+#   fly secrets set API_URL="https://<your-app>.fly.dev/"
+#   fly deploy
+# Then set COBALT_API_URL="https://<your-app>.fly.dev/" in Vercel.
+app = "vidrush-cobalt"
+primary_region = "iad"
+
+[build]
+  image = "ghcr.io/imputnet/cobalt:11"
+
+[env]
+  # API_URL is set via `fly secrets set` so it matches your real *.fly.dev host.
+
+[http_service]
+  internal_port = 9000
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"

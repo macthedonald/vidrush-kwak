@@ -1,0 +1,9 @@
+{
+  "//": "Optional API-key auth for your cobalt instance. Copy to keys.json, replace the UUID",
+  "//2": "with your own (any UUID), enable API_KEY_URL in docker-compose.yml, and set that same",
+  "//3": "value as COBALT_API_KEY in Vercel. Generate one with: uuidgen  (or any UUID tool).",
+  "b5c7e0a2-6f3d-4e1b-9a8c-2d4f6b8e0a1c": {
+    "name": "vidrush",
+    "limit": 100
+  }
+}
