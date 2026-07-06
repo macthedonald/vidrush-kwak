@@ -43,6 +43,23 @@ const cleanBrief = (raw) => (raw || "")
   .replace(/`+/g, "")                          // stray backticks
   .replace(/\n{3,}/g, "\n\n")
   .trim();
+// Pack/unpack a voiceover segment (rate + word-timings + raw Int16 PCM) into a single blob so
+// it can live in Convex file storage and sync across devices. Layout: [u32 metaLen][meta JSON][PCM].
+function packSeg(seg) {
+  const metaBytes = new TextEncoder().encode(JSON.stringify({ rate: seg.rate, words: seg.words || null }));
+  const header = new Uint8Array(4);
+  new DataView(header.buffer).setUint32(0, metaBytes.length, true);
+  const pcmBytes = new Uint8Array(seg.pcm.buffer, seg.pcm.byteOffset, seg.pcm.byteLength);
+  return new Blob([header, metaBytes, pcmBytes], { type: "application/octet-stream" });
+}
+async function unpackSeg(blob) {
+  const buf = await blob.arrayBuffer();
+  const metaLen = new DataView(buf).getUint32(0, true);
+  const meta = JSON.parse(new TextDecoder().decode(new Uint8Array(buf, 4, metaLen)));
+  const pcm = new Int16Array(buf.slice(4 + metaLen)); // slice → fresh, 2-byte-aligned buffer
+  return { pcm, rate: meta.rate, words: meta.words || null };
+}
+
 const STYLES = [
   { id: "cinematic", n: "Cinematic AI", d: "Photoreal AI frames, Ken Burns, fast cuts" },
   { id: "realasset", n: "Real Assets", d: "Coverr + Pixabay clips/photos, Pexels fallback" },
@@ -168,13 +185,18 @@ export default function Studio({ niche, ctx, clKey, gemKey, gathosKey, gathosVid
         }));
         if (!live) return;
         setScenes(hydrated);
+        const secCount = computeSections(hydrated).length;
         const segs = [];
-        for (let si = 0; ; si++) {
-          const seg = await idbGet(mk(`seg:${si}`));
-          if (!seg) break;
-          segs[si] = { pcm: seg.pcm, rate: seg.rate, words: seg.words || null };
+        let anySeg = false;
+        for (let si = 0; si < secCount; si++) {
+          let seg = await idbGet(mk(`seg:${si}`));
+          if (!seg) { // not local (e.g. another device) → pull the packed segment from the cloud
+            const su = cloudMediaUrl(mk(`seg:${si}`));
+            if (su) { try { seg = await unpackSeg(await (await fetch(su)).blob()); idbSet(mk(`seg:${si}`), seg); } catch {} }
+          }
+          if (seg) { segs[si] = { pcm: seg.pcm, rate: seg.rate, words: seg.words || null }; anySeg = true; }
         }
-        if (segs.length && live) setAudioSegs(segs);
+        if (anySeg && live) setAudioSegs(segs);
       }
       const m = await idbGet(mk("music"));
       if (m?.ab && live) {
@@ -527,7 +549,7 @@ export default function Studio({ niche, ctx, clKey, gemKey, gathosKey, gathosVid
     try {
       const seg = await speak(text);
       setSeg(si, seg);
-      idbSet(mk(`seg:${si}`), { pcm: seg.pcm, rate: seg.rate, words: seg.words });
+      saveMedia(mk(`seg:${si}`), { pcm: seg.pcm, rate: seg.rate, words: seg.words }, packSeg(seg));
       return seg;
     } catch (e) { setSeg(si, { err: e.message }); return null; }
   };
