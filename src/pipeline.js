@@ -135,15 +135,16 @@ Structure using 4 pillars:
 Rules: Visual keywords only (no stage directions). ~0.5 talking points per minute. End with Style + Tone line. Keep it CONCISE — quality over quantity.`;
 
 export const SYS_SCRIPT = `You are VidRush Studio — an elite faceless-YouTube scriptwriter with style DNA cloned from the top channels in the given niche.
-Write the COMPLETE word-for-word narration script, ready to be read aloud by a voiceover artist.
+Write the COMPLETE, word-for-word narration script, ready to be read aloud by a voiceover artist.
 Rules:
 - Open with a 10-15 second HOOK that creates an open curiosity loop.
 - Plant a retention hook ("but that's not even the strangest part...") roughly every 60 seconds.
 - Conversational, confident tone. Short punchy sentences mixed with longer ones. Second person where natural.
 - Specific facts, numbers, names — no filler, no fluff, no "in this video we will".
 - Close with a payoff + a one-line subscribe CTA.
-Format: PLAIN narration text only. Mark each section with a line: [SECTION: Section Name]
-No markdown, no stage directions, no camera notes, no timestamps.`;
+Output ONLY the clean spoken narration — exactly the words the voice artist reads, nothing else.
+Break it into natural paragraphs, one blank line between beats, so it reads as a full clean script.
+Do NOT include: section headers or labels, [SECTION] tags, "Hook:" / "Intro:" / "Outro:" prefixes, timestamps, speaker names, camera or stage directions, markdown, asterisks, bold, headings, or bullet points.`;
 
 export const SYS_STORYBOARD = `You are a storyboard director for fast-cut faceless YouTube videos. Convert the narration script into a shot-by-shot storyboard.
 Split the ENTIRE script IN ORDER into SHORT shots of 3-5 seconds each — that is 8-14 words of narration per shot, cutting at natural clause boundaries. Do not skip, shorten, or paraphrase any narration — copy it verbatim across the shots.
@@ -779,22 +780,34 @@ export async function renderVideoFast({ shots, audioSegs = [], total, music = nu
   return { blob: new Blob([buffer], { type: "video/mp4" }), ext: "mp4", duration: total };
 }
 
-// Split a script into [SECTION: X] groups of at most `maxWords` words for chunked storyboarding.
+// Split a script into chunks of at most `maxWords` words for chunked storyboarding,
+// cutting on natural boundaries: paragraphs first, then sentences for oversized ones.
+// Works on clean prose; any legacy [SECTION: X] markers are treated as paragraph breaks.
+const wc = s => s.split(/\s+/).filter(Boolean).length;
 export function chunkScript(script, maxWords = 1500) {
-  const parts = script.split(/(\[SECTION:[^\]]*\])/).filter(s => s.trim());
-  const sections = [];
-  let cur = "";
-  for (const p of parts) {
-    if (/^\[SECTION:/.test(p)) { if (cur.trim()) sections.push(cur); cur = p; }
-    else cur += "\n" + p;
+  const units = script
+    .replace(/\[SECTION:[^\]]*\]/gi, "\n\n")
+    .split(/\n\s*\n+/).map(s => s.trim()).filter(Boolean);
+  // Break any paragraph that alone exceeds maxWords down to sentence groups.
+  const pieces = [];
+  for (const u of units) {
+    if (wc(u) <= maxWords) { pieces.push(u); continue; }
+    const sentences = u.match(/[^.!?]+[.!?]+(?:["'”’)\]]*)?\s*|\S[^.!?]*$/g) || [u];
+    let buf = "", n = 0;
+    for (const s of sentences) {
+      const w = wc(s);
+      if (n && n + w > maxWords) { pieces.push(buf.trim()); buf = s; n = w; }
+      else { buf += s; n += w; }
+    }
+    if (buf.trim()) pieces.push(buf.trim());
   }
-  if (cur.trim()) sections.push(cur);
+  // Pack paragraph pieces into chunks of at most maxWords.
   const chunks = [];
   let buf = "", n = 0;
-  for (const sec of sections.length ? sections : [script]) {
-    const w = sec.split(/\s+/).filter(Boolean).length;
-    if (n && n + w > maxWords) { chunks.push(buf); buf = sec; n = w; }
-    else { buf += (buf ? "\n" : "") + sec; n += w; }
+  for (const p of pieces.length ? pieces : [script]) {
+    const w = wc(p);
+    if (n && n + w > maxWords) { chunks.push(buf); buf = p; n = w; }
+    else { buf += (buf ? "\n\n" : "") + p; n += w; }
   }
   if (buf.trim()) chunks.push(buf);
   return chunks;
