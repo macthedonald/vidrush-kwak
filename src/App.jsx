@@ -174,8 +174,12 @@ export default function App({ auth = null }) {
   // Everything downstream of a topic happens in the Studio now.
   const openStudio = (topic, version, histId, prompt, refThumb) => {
     if (!niche) return;
+    // Always resolve a stable history id up front, so the Studio's storage key never changes
+    // between sessions (previously a topic opened without an id keyed by topic text, then keyed
+    // by id when reopened from history — which orphaned the saved scenes/assets on refresh).
+    const hid = histId || addH(niche.id, topic, version || 1, prompt || "", refThumb || "");
     setNiche(prev => ({ ...prev, topic, topicVersion: version }));
-    setStudioCtx({ topic, version: version || 1, histId: histId || null, prompt: prompt || "", refThumb: refThumb || "" });
+    setStudioCtx({ topic, version: version || 1, histId: hid, prompt: prompt || "", refThumb: refThumb || "" });
     setPg(P.STUDIO);
   };
   const openStudioFromHist = (h) => openStudio(h.topic, h.version, h.id, h.prompt, h.thumb);

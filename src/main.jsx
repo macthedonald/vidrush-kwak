@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App.jsx";
-import { cloudEnabled, CONVEX_URL, CLERK_KEY, fn, hydrateFromCloud, attachBackend, detachBackend, appLocalKeys } from "./cloud.js";
+import { cloudEnabled, CONVEX_URL, CLERK_KEY, fn, hydrateFromCloud, attachBackend, detachBackend, appLocalKeys, hydrateMediaFromCloud, attachMediaBackend, detachMediaBackend } from "./cloud.js";
 
 function Root() {
   // No Convex/Clerk configured → plain local-only app (unchanged behavior, zero setup).
@@ -47,16 +47,22 @@ function CloudGate({ convexReact, clerk }) {
   const { user } = clerk.useUser();
   const { signOut } = clerk.useClerk();
   const rows = useQuery(fn.list);
+  const mediaRows = useQuery(fn.mediaList);
   const setKv = useMutation(fn.set);
   const setMany = useMutation(fn.setMany);
   const removeKv = useMutation(fn.remove);
+  const mediaUploadUrl = useMutation(fn.mediaUploadUrl);
+  const mediaSet = useMutation(fn.mediaSet);
+  const mediaRemove = useMutation(fn.mediaRemove);
   const [ready, setReady] = useState(false);
   const migrated = useRef(false);
 
   useEffect(() => {
-    if (rows === undefined) return; // still loading
+    if (rows === undefined || mediaRows === undefined) return; // wait for both before mounting
     hydrateFromCloud(rows);
+    hydrateMediaFromCloud(mediaRows);
     attachBackend(setKv, removeKv);
+    attachMediaBackend(mediaUploadUrl, mediaSet, mediaRemove);
     // First sign-in: if the account is empty but this browser has prior local work, import it.
     if (!migrated.current) {
       migrated.current = true;
@@ -68,8 +74,8 @@ function CloudGate({ convexReact, clerk }) {
       }
     }
     setReady(true);
-    return () => detachBackend();
-  }, [rows]);
+    return () => { detachBackend(); detachMediaBackend(); };
+  }, [rows, mediaRows]);
 
   if (!ready) return <Splash label="Syncing your workspace…" />;
   const auth = {

@@ -44,8 +44,10 @@ export async function gathosImage(prompt, key, { aspect = "16:9", enhance = fals
     else throw e;
   }
   const deadline = Date.now() + 300000;
+  let wait = 1000; // poll quickly at first (images finish fast), then ease off
   while (Date.now() < deadline) {
-    await sleep(3000);
+    await sleep(wait);
+    wait = Math.min(2500, wait + 300);
     const d = await gjson(await pfetch(`${BASE}/image-generation/jobs/${job.job_id}`, { headers: hdrs(key) }));
     if (onStatus && d.eta_seconds != null) onStatus(`~${Math.round(d.eta_seconds)}s`);
     if (d.status === "completed") return `data:${d.result.content_type || "image/png"};base64,${d.result.image_base64}`;
