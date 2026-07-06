@@ -15,6 +15,20 @@ import { recordEvent, lessonsNote, reflect } from "./memory";
 import { cloudGet as ls, cloudSet as ss } from "./cloud.js";
 
 const STEPS = ["Script", "Storyboard", "Visuals", "Voiceover", "Render", "Thumbnail", "SEO Package"];
+
+// Normalize an AI-written script to clean spoken narration: strip any stray
+// section tags, markdown headings/bold, label-only lines and bullet markers,
+// and collapse runs of blank lines. Only touches formatting cruft, never prose.
+const cleanScript = (raw) => (raw || "")
+  .replace(/\[SECTION:[^\]]*\]/gi, "")                       // [SECTION: ...] tags
+  .replace(/^\s{0,3}#{1,6}\s+/gm, "")                        // # markdown heading marks
+  .replace(/^\s*\[[^\]\n]{0,48}\]\s*$/gm, "")                // [Hook] / [Intro] label-only lines
+  .replace(/^\s*(?:\*\*|__)[^*_\n]{0,48}(?:\*\*|__)\s*:?\s*$/gm, "") // **Hook** / __Intro:__ label-only lines
+  .replace(/^\s*(?:hook|intro|introduction|outro|conclusion|cta|call to action|section\s*\d*|part\s*\d*)\s*:\s*$/gim, "") // bare "Hook:" label lines
+  .replace(/\*\*(.+?)\*\*/g, "$1")                           // inline **bold** → plain
+  .replace(/^\s*[-*•]\s+/gm, "")                             // bullet markers
+  .replace(/\n{3,}/g, "\n\n")                                // collapse excess blank lines
+  .trim();
 const STYLES = [
   { id: "cinematic", n: "Cinematic AI", d: "Photoreal AI frames, Ken Burns, fast cuts" },
   { id: "realasset", n: "Real Assets", d: "Coverr + Pixabay clips/photos, Pexels fallback" },
@@ -208,7 +222,7 @@ export default function Studio({ niche, ctx, clKey, gemKey, gathosKey, gathosVid
       const guide = brief ? `\n\nUse this creative brief (built from competitor research) as your guide for angle, facts and structure:\n${brief.slice(0, 6000)}` : "";
       const fmtNote = vertical ? "\nFORMAT: This is a vertical YouTube Short — punchy, no slow build, hook in the first 2 seconds." : "";
       const r = await claude(SYS_SCRIPT, `Topic: ${ctx.topic}\nNiche: ${niche.name}${niche.desc ? ` — ${niche.desc}` : ""}\nVideo length: ${dur} minutes → target ≈${words} words.${fmtNote}${guide}${tplScriptNote()}${lessonsNote(niche.id)}`, clKey, { maxTokens: 16000 });
-      const clean = r.trim();
+      const clean = cleanScript(r);
       setScript(clean); persist({ script: clean });
       recordEvent(niche.id, "script_generated", { topic: ctx.topic, words: clean.split(/\s+/).length, template: tpl?.name || null, format });
       setSt(`✅ Script ready (${clean.split(/\s+/).length} words ≈ ${fmtTime(clean.split(/\s+/).length / 2.6)})`);
@@ -599,7 +613,7 @@ export default function Studio({ niche, ctx, clKey, gemKey, gathosKey, gathosVid
           <button className={`yt-btn ${busy === "script" ? "yt-btn-ld" : ""}`} onClick={genScript} disabled={disabled}>{busy === "script" ? "Writing…" : script ? "Rewrite" : "Write script"}</button>
         </div>
         {brief && <p className="yt-hint">The brief above guides this script.</p>}
-        <textarea className="yt-input vs-script-area" rows="16" value={script} onChange={e => setScript(e.target.value)} onFocus={e => { focusRef.current = e.target.value; }} onBlur={e => { persist(); if (focusRef.current && focusRef.current !== e.target.value) recordEvent(niche.id, "script_edited", { before: focusRef.current.slice(0, 220), after: e.target.value.slice(0, 220) }); }} placeholder="Hit Write script — or paste your own narration. Mark sections with [SECTION: Name] lines."/>
+        <textarea className="yt-input vs-script-area vs-script-read" rows="16" value={script} onChange={e => setScript(e.target.value)} onFocus={e => { focusRef.current = e.target.value; }} onBlur={e => { persist(); if (focusRef.current && focusRef.current !== e.target.value) recordEvent(niche.id, "script_edited", { before: focusRef.current.slice(0, 220), after: e.target.value.slice(0, 220) }); }} placeholder="Hit Write script — or paste your own narration. Clean spoken text, paragraphs between beats."/>
         {script && <div className="vs-row-between"><span className="yt-hint">{script.split(/\s+/).filter(Boolean).length} words ≈ {fmtTime(script.split(/\s+/).filter(Boolean).length / 2.6)} runtime</span>
           <button className="yt-btn" onClick={() => { genStoryboard(); setStep(1); }} disabled={disabled}>Storyboard it →</button></div>}
       </div>
@@ -908,6 +922,7 @@ const STUDIO_CSS = `
 .vs-step.done .vs-step-num{background:var(--green);color:#fff}
 .vs-step-num{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:50%;background:var(--surface2);font-size:10px;font-weight:700}
 .vs-script-area{font-family:var(--mono);font-size:13px;line-height:1.6;resize:vertical;margin-top:10px}
+.vs-script-read{font-family:inherit;font-size:15px;line-height:1.75;white-space:pre-wrap}
 .vs-row-between{display:flex;justify-content:space-between;align-items:center;margin-top:10px;gap:10px;flex-wrap:wrap}
 .vs-scene{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius2);padding:14px;margin-top:12px}
 .vs-scene-head{display:flex;align-items:center;gap:10px;margin-bottom:8px}
