@@ -418,7 +418,7 @@ export default function Studio({ niche, ctx, clKey, gemKey, gathosKey, gathosVid
         idbSet(mk(`vid:${i}`), { blob: file, thumb: asset.thumb, credit }); idbDel(mk(`img:${i}`));
         setSt(`✅ Clip on #${i + 1} — trim it short and keep your narration over it (fair use)`);
       } catch (e) {
-        setScene(i, { imgErr: `YouTube pull needs the local engine (dev/preview) — ${e.message}`, imgLoading: false });
+        setScene(i, { imgErr: `YouTube pull failed — ${e.message}`, imgLoading: false });
       }
       return;
     }

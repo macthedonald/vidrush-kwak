@@ -68,13 +68,38 @@ async function handle(req, res, next) {
     try { await tryOne(c, id, res); return; }
     catch (e) { errors.push(e.message.slice(0, 140)); }
   }
+  // Fallback (and parity with production): a cobalt instance, if configured.
+  if (process.env.COBALT_API_URL) {
+    try { await tryCobalt(id, res); return; }
+    catch (e) { errors.push("cobalt: " + e.message.slice(0, 140)); }
+  }
   res.statusCode = 502;
   res.setHeader("content-type", "application/json");
   res.end(JSON.stringify({
     error: "yt-dlp unavailable or failed",
-    hint: "Run `npm install` (fetches the yt-dlp binary) or install yt-dlp on your PATH.",
+    hint: "Run `npm install` (fetches the yt-dlp binary), install yt-dlp on your PATH, or set COBALT_API_URL.",
     attempts: errors,
   }));
+}
+
+// Stream a video through a configured cobalt instance (same engine used in production api/yt.js).
+async function tryCobalt(id, res) {
+  const base = process.env.COBALT_API_URL.replace(/\/$/, "");
+  const api = await fetch(base, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Accept: "application/json", ...(process.env.COBALT_API_KEY ? { Authorization: `Api-Key ${process.env.COBALT_API_KEY}` } : {}) },
+    body: JSON.stringify({ url: `https://www.youtube.com/watch?v=${id}`, videoQuality: "480", youtubeVideoCodec: "h264", filenameStyle: "basic", downloadMode: "auto" }),
+  });
+  const data = await api.json().catch(() => ({}));
+  const mediaUrl = ((data.status === "tunnel" || data.status === "redirect") && data.url)
+    || (data.status === "picker" && (data.picker.find(p => p.type === "video") || data.picker[0])?.url);
+  if (!mediaUrl) throw new Error(data.error?.code || data.status || "no media url");
+  const media = await fetch(mediaUrl);
+  if (!media.ok) throw new Error(`media ${media.status}`);
+  res.statusCode = 200;
+  res.setHeader("content-type", "video/mp4");
+  const { Readable } = await import("node:stream");
+  Readable.fromWeb(media.body).pipe(res);
 }
 
 export default function ytProxy() {

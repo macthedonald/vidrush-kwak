@@ -107,7 +107,14 @@ The app is a static Vite SPA — Vercel builds it with zero config beyond the in
 3. In the **Convex dashboard → Settings → Environment Variables**, set `CLERK_JWT_ISSUER_DOMAIN` to your Clerk Frontend API URL (what `convex/auth.config.js` validates).
 4. Redeploy. The build (`scripts/vercel-build.mjs`) sees `CONVEX_DEPLOY_KEY`, runs `npx convex deploy --cmd 'npm run build'` to push `convex/` to production, and auto-injects `VITE_CONVEX_URL`. No key ⇒ it falls back to a plain `npm run build` and the app stays local-only.
 
-**One caveat:** the `/api/yt` yt-dlp download route only runs under `npm run dev`/`npm run preview` (it's a Node middleware). On Vercel it isn't deployed — but the **Learn from a video** feature doesn't need it, because Gemini reads YouTube links directly. Everything else is fully client-side and works on Vercel as-is.
+**Real footage & YouTube (Creative-Commons) b-roll.** Real shots pull genuine, openly-licensed media of the actual subject from **Wikimedia Commons** and the **Internet Archive** (public-domain video), ranked by relevance — no key needed. The **Pick** dialog also has a **YouTube (CC)** tab that searches only Creative-Commons–licensed videos (the monetization-safe, reusable subset); keep those clips short and under your own narration so the use stays transformative, and attribution is added automatically.
+
+**Pulling YouTube clips:**
+- Locally (`npm run dev`/`preview`), the `/api/yt` route uses **yt-dlp** (bundled via `youtube-dl-exec`) — works out of the box.
+- In production on Vercel, YouTube blocks direct downloads from datacenter IPs, so `/api/yt` (the `api/yt.js` serverless function) routes through a **cobalt** extractor instead. Enable it by setting in your Vercel env:
+  - `COBALT_API_URL` — a cobalt instance base URL (self-host in minutes with `docker run ghcr.io/imputnet/cobalt`, or point at a trusted instance).
+  - `COBALT_API_KEY` — only if your instance requires `Api-Key` auth.
+  Without it, YouTube pulls return a clear "set COBALT_API_URL" message; Wikimedia/Archive footage still works everywhere. Pick short clips — long videos can exceed serverless limits. (The **Learn from a video** feature never needs this — Gemini reads YouTube links directly.)
 
 ## Notes
 
