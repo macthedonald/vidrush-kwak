@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import {
   claude, parseJson, SYS_BRIEF, SYS_SCRIPT, SYS_SEO, STYLE_WRAP,
   geminiTTS, groqTranscribe, concatPcm, pcmToWav, pcmToMp3,
-  coverrVideos, pixabayVideos, pixabayPhotos, pexelsVideos, pexelsPhotos, sourceRealAsset, wikimediaMedia, urlToDataURL,
+  coverrVideos, pixabayVideos, pixabayPhotos, pexelsVideos, pexelsPhotos, sourceRealAsset, wikimediaMedia, archiveVideos, archiveResolveFile, youtubeCC, urlToDataURL,
   makeZip, fmtTime, estDuration, renderVideo, renderVideoFast, canRenderFast, loadImage, loadVideoEl, pickMime,
 } from "./pipeline";
 import { gathosImage, gathosVideo, GATHOS_STYLE } from "./gathos";
@@ -14,6 +14,7 @@ import ThumbLab from "./thumblab";
 import { recordEvent, lessonsNote, reflect } from "./memory";
 import { cloudGet as ls, cloudSet as ss } from "./cloud.js";
 import { pfetch } from "./net.js";
+import { fetchYouTubeVideo } from "./yt.js";
 
 const STEPS = ["Script", "Storyboard", "Visuals", "Voiceover", "Render", "Thumbnail", "SEO Package"];
 
@@ -87,7 +88,7 @@ For each numbered narration line you receive, imagine ONE concrete shot that ill
 Return ONLY a JSON array with exactly one object per line, IN THE SAME ORDER, no markdown:
 [{"visual":"30-50 word prompt describing ONE concrete frame: subject, setting, composition, lighting, mood. Visual keywords only, no text in image","broll":["2-4 SPECIFIC search queries: use the real proper nouns, names, places, objects or events named in the narration (e.g. 'Colosseum Rome interior', 'Julius Caesar marble bust', 'Apollo 11 launch') — concrete and searchable, NOT generic words like 'success' or 'history'","second more specific query","a broader backup query"],"overlay":"optional on-screen text, max 4 words, or empty string","sourceType":"real when this beat depicts a real person/place/event/object that genuine archival footage would show, otherwise ai"}]`;
 
-export default function Studio({ niche, ctx, clKey, gemKey, gathosKey, gathosVidKey, groqKey, pexKey, pixKey, covKey, ai33Key, ai33Base, back, addH, updateH }) {
+export default function Studio({ niche, ctx, clKey, gemKey, gathosKey, gathosVidKey, groqKey, ytKey, pexKey, pixKey, covKey, ai33Key, ai33Base, back, addH, updateH }) {
   const vidKey = gathosVidKey || gathosKey; // legacy img_live_* keys also work for video
   const storeKey = `vr7-studio-${niche.id}-${ctx.histId || ctx.topic}`;
   const mk = k => `${storeKey}:${k}`;
@@ -407,16 +408,31 @@ export default function Studio({ niche, ctx, clKey, gemKey, gathosKey, gathosVid
   };
   const applyAsset = async (i, asset) => {
     setScene(i, { imgLoading: true, imgErr: null });
+    const credit = { text: asset.credit, url: asset.url, source: asset.source };
+    // YouTube (CC): pull the clip via the local yt-dlp engine (dev/preview). Use short + transformed.
+    if (asset.kind === "youtube") {
+      try {
+        setSt(`#${i + 1}: pulling CC YouTube clip…`);
+        const { file } = await fetchYouTubeVideo(asset.videoId, { onStatus: m => setSt(`#${i + 1}: ${m}`) });
+        setScene(i, { video: { blobUrl: URL.createObjectURL(file), thumb: asset.thumb }, img: null, credit, imgLoading: false });
+        idbSet(mk(`vid:${i}`), { blob: file, thumb: asset.thumb, credit }); idbDel(mk(`img:${i}`));
+        setSt(`✅ Clip on #${i + 1} — trim it short and keep your narration over it (fair use)`);
+      } catch (e) {
+        setScene(i, { imgErr: `YouTube pull needs the local engine (dev/preview) — ${e.message}`, imgLoading: false });
+      }
+      return;
+    }
     try {
-      const credit = { text: asset.credit, url: asset.url, source: asset.source };
-      if (asset.kind === "video") {
-        const resp = await pfetch(asset.src);
+      let a = asset;
+      if (a._needsResolve) { const rr = await archiveResolveFile(a); if (!rr) throw new Error("No playable file on that Internet Archive item"); a = rr; }
+      if (a.kind === "video") {
+        const resp = await pfetch(a.src);
         if (!resp.ok) throw new Error(`Asset fetch ${resp.status}`);
         const blob = await resp.blob();
-        setScene(i, { video: { blobUrl: URL.createObjectURL(blob), thumb: asset.thumb }, img: null, credit, imgLoading: false });
-        idbSet(mk(`vid:${i}`), { blob, thumb: asset.thumb, credit }); idbDel(mk(`img:${i}`));
+        setScene(i, { video: { blobUrl: URL.createObjectURL(blob), thumb: a.thumb }, img: null, credit, imgLoading: false });
+        idbSet(mk(`vid:${i}`), { blob, thumb: a.thumb, credit }); idbDel(mk(`img:${i}`));
       } else {
-        const dataUrl = await urlToDataURL(asset.src);
+        const dataUrl = await urlToDataURL(a.src);
         setScene(i, { img: dataUrl, video: null, credit, imgLoading: false });
         idbSet(mk(`img:${i}`), dataUrl); idbDel(mk(`vid:${i}`));
       }
@@ -447,6 +463,8 @@ export default function Studio({ niche, ctx, clKey, gemKey, gathosKey, gathosVid
     try {
       let results = [];
       if (tab === "wikimedia") results = await wikimediaMedia(q, 12);
+      else if (tab === "archive") results = await archiveVideos(q, 12);
+      else if (tab === "youtube") results = await youtubeCC(q, ytKey, 12);
       else if (tab === "coverr") results = covKey ? await coverrVideos(q, covKey, 8) : [];
       else if (tab === "pixabay") results = pixKey ? [...await pixabayVideos(q, pixKey, 4), ...await pixabayPhotos(q, pixKey, 4)] : [];
       else results = pexKey ? [...await pexelsVideos(q, pexKey, 4), ...await pexelsPhotos(q, pexKey, 4)] : [];
@@ -771,13 +789,18 @@ export default function Studio({ niche, ctx, clKey, gemKey, gathosKey, gathosVid
       {srcPick && <div className="vs-pex-modal" onClick={() => setSrcPick(null)}><div className="vs-pex-box" onClick={e => e.stopPropagation()}>
         <div className="vs-row-between"><span className="yt-card-ht">Source shot #{srcPick.sceneIdx + 1}</span><button className="yt-x" onClick={() => setSrcPick(null)}>✕</button></div>
         <div className="vs-src-tabs">
-          <button className={`vs-src-tab ${srcPick.tab === "wikimedia" ? "active" : ""}`} onClick={() => loadSourceResults(srcPick.sceneIdx, srcPick.query, "wikimedia")}>Real footage</button>
+          <button className={`vs-src-tab ${srcPick.tab === "wikimedia" ? "active" : ""}`} onClick={() => loadSourceResults(srcPick.sceneIdx, srcPick.query, "wikimedia")}>Wikimedia</button>
+          <button className={`vs-src-tab ${srcPick.tab === "archive" ? "active" : ""}`} onClick={() => loadSourceResults(srcPick.sceneIdx, srcPick.query, "archive")}>Archive video</button>
+          {ytKey && <button className={`vs-src-tab ${srcPick.tab === "youtube" ? "active" : ""}`} onClick={() => loadSourceResults(srcPick.sceneIdx, srcPick.query, "youtube")}>YouTube (CC)</button>}
           {covKey && <button className={`vs-src-tab ${srcPick.tab === "coverr" ? "active" : ""}`} onClick={() => loadSourceResults(srcPick.sceneIdx, srcPick.query, "coverr")}>Coverr</button>}
           {pixKey && <button className={`vs-src-tab ${srcPick.tab === "pixabay" ? "active" : ""}`} onClick={() => loadSourceResults(srcPick.sceneIdx, srcPick.query, "pixabay")}>Pixabay</button>}
           {pexKey && <button className={`vs-src-tab ${srcPick.tab === "pexels" ? "active" : ""}`} onClick={() => loadSourceResults(srcPick.sceneIdx, srcPick.query, "pexels")}>Pexels</button>}
           <input className="yt-input" style={{ maxWidth: 220 }} value={srcPick.query} onChange={e => setSrcPick(p => ({ ...p, query: e.target.value }))} onKeyDown={e => e.key === "Enter" && loadSourceResults(srcPick.sceneIdx, srcPick.query, srcPick.tab)}/>
           <button className="yt-btn" onClick={() => loadSourceResults(srcPick.sceneIdx, srcPick.query, srcPick.tab)}>Search</button>
         </div>
+        {srcPick.tab === "wikimedia" && <p className="yt-hint">Real, openly-licensed media of the actual subject from Wikimedia Commons — credit is auto-attached.</p>}
+        {srcPick.tab === "archive" && <p className="yt-hint">Public-domain archival video from the Internet Archive — great for real historical footage.</p>}
+        {srcPick.tab === "youtube" && <p className="yt-hint">⚖ Creative-Commons YouTube only (reusable with credit). Keep clips short and always under your own narration/commentary so it stays transformative & monetization-safe. Attribution is auto-added.</p>}
         {srcPick.loading && <div className="yt-ld-box"><div className="yt-spin"/></div>}
         {srcPick.err && <p className="yt-st err">⚠ {srcPick.err}</p>}
         <div className="vs-pex-grid">{srcPick.results.map((r, k) => <div key={k} className="vs-src-item" onClick={() => { applyAsset(srcPick.sceneIdx, r); setSrcPick(null); }}>

@@ -12,6 +12,7 @@ const ALLOW = [
   /(^|\.)vimeocdn\.com$/,
   /(^|\.)wikimedia\.org$/,
   /(^|\.)wikipedia\.org$/,
+  /(^|\.)archive\.org$/,
 ];
 
 async function handle(req, res, next) {

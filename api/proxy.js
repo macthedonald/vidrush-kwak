@@ -16,6 +16,7 @@ const ALLOW = [
   /(^|\.)vimeocdn\.com$/,
   /(^|\.)wikimedia\.org$/,
   /(^|\.)wikipedia\.org$/,
+  /(^|\.)archive\.org$/,
 ];
 
 export default async function handler(request) {

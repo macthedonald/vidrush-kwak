@@ -15,6 +15,7 @@ const PROXY_HOSTS = [
   /(^|\.)vimeocdn\.com$/,
   /(^|\.)wikimedia\.org$/,
   /(^|\.)wikipedia\.org$/,
+  /(^|\.)archive\.org$/,
 ];
 
 export function needsProxy(url) {
