@@ -12,7 +12,7 @@ import { usePopIn } from "./anim";
 import { idbSet, idbGet, idbDel, idbDelPrefix } from "./store";
 import ThumbLab from "./thumblab";
 import { recordEvent, lessonsNote, reflect } from "./memory";
-import { cloudGet as ls, cloudSet as ss } from "./cloud.js";
+import { cloudGet as ls, cloudSet as ss, cloudPutMedia, cloudMediaUrl, cloudRemoveMedia } from "./cloud.js";
 import { pfetch } from "./net.js";
 import { fetchYouTubeVideo } from "./yt.js";
 
@@ -30,6 +30,18 @@ const cleanScript = (raw) => (raw || "")
   .replace(/\*\*(.+?)\*\*/g, "$1")                           // inline **bold** → plain
   .replace(/^\s*[-*•]\s+/gm, "")                             // bullet markers
   .replace(/\n{3,}/g, "\n\n")                                // collapse excess blank lines
+  .trim();
+
+// Lighter cleaner for the creative brief: strip markdown syntax but KEEP the section
+// labels and paragraph structure so it still reads as a briefing.
+const cleanBrief = (raw) => (raw || "")
+  .replace(/^\s{0,3}#{1,6}\s+/gm, "")          // "# Heading" marks
+  .replace(/\*\*(.+?)\*\*/g, "$1")             // **bold**
+  .replace(/__(.+?)__/g, "$1")                 // __bold__
+  .replace(/(^|[\s(])\*(?!\s)([^*\n]+?)\*(?=[\s).,;:]|$)/g, "$1$2") // *italics*
+  .replace(/^\s*[-*•]\s+/gm, "• ")             // normalize bullets to a plain dot
+  .replace(/`+/g, "")                          // stray backticks
+  .replace(/\n{3,}/g, "\n\n")
   .trim();
 const STYLES = [
   { id: "cinematic", n: "Cinematic AI", d: "Photoreal AI frames, Ken Burns, fast cuts" },
@@ -145,8 +157,13 @@ export default function Studio({ niche, ctx, clKey, gemKey, gathosKey, gathosVid
       }
       if (baseScenes.length) {
         const hydrated = await Promise.all(baseScenes.map(async (s, i) => {
-          const img = await idbGet(mk(`img:${i}`));
-          const vid = await idbGet(mk(`vid:${i}`));
+          let img = await idbGet(mk(`img:${i}`));
+          let vid = await idbGet(mk(`vid:${i}`));
+          if (!img && !vid?.blob) { // nothing local (e.g. another device) → pull from the cloud
+            const vu = cloudMediaUrl(mk(`vid:${i}`));
+            if (vu) { try { const blob = await (await fetch(vu)).blob(); vid = { blob, thumb: s.credit?.thumb || null, credit: s.credit || null }; idbSet(mk(`vid:${i}`), vid); } catch {} }
+            else { const iu = cloudMediaUrl(mk(`img:${i}`)); if (iu) { try { img = await urlToDataURL(iu); idbSet(mk(`img:${i}`), img); } catch {} } }
+          }
           return { ...s, img: img || null, video: vid?.blob ? { blobUrl: URL.createObjectURL(vid.blob), thumb: vid.thumb } : null, credit: s.credit || vid?.credit || null };
         }));
         if (!live) return;
@@ -166,7 +183,8 @@ export default function Studio({ niche, ctx, clKey, gemKey, gathosKey, gathosVid
           setMusic({ name: m.name, buffer, url: URL.createObjectURL(new Blob([m.ab], { type: "audio/mpeg" })), ab: m.ab });
         } catch {}
       }
-      const v = await idbGet(mk("video"));
+      let v = await idbGet(mk("video"));
+      if (!v?.blob) { const cu = cloudMediaUrl(mk("video")); if (cu) { try { const blob = await (await fetch(cu)).blob(); v = { blob, ext: "mp4", duration: 0 }; idbSet(mk("video"), v); } catch {} } }
       if (v?.blob && live) setVideo({ url: URL.createObjectURL(v.blob), ext: v.ext, duration: v.duration, size: v.blob.size });
       const th = await idbGet(mk("thumbs"));
       if (th && live) setThumbState(t => ({ ...t, thumbs: th }));
@@ -183,6 +201,10 @@ export default function Studio({ niche, ctx, clKey, gemKey, gathosKey, gathosVid
     ss(storeKey, cur);
   };
   const clearSegsIdb = () => { for (let si = 0; si < 40; si++) idbDel(mk(`seg:${si}`)); };
+  // Persist a media asset locally (IndexedDB) AND to Convex storage so it follows the user
+  // across devices. `upload` is the raw blob/data-URL to store in the cloud (null = local-only).
+  const saveMedia = (key, idbValue, upload) => { idbSet(key, idbValue); if (upload) cloudPutMedia(key, upload); };
+  const delMedia = (key) => { idbDel(key); cloudRemoveMedia(key); };
   const pickVoice = v => { setVoiceSel(v); ss("vr7-voice", v); setVoiceModal(false); setAudioSegs([]); clearSegsIdb(); recordEvent(niche.id, "voice_selected", { voice: v.name, provider: v.provider }); };
 
   // Sections = consecutive scenes sharing a section name; voiced per section for prosody,
@@ -246,7 +268,7 @@ export default function Studio({ niche, ctx, clKey, gemKey, gathosKey, gathosVid
   // ---- Creative brief (research-driven; versions avoid repeating used items) ----
   const getUsedItems = () => (niche.history || []).filter(h => h.topic.toLowerCase() === ctx.topic.toLowerCase() && h.usedItems?.length).flatMap(h => h.usedItems);
   const genBrief = async () => {
-    if (!clKey) { setSt("⚠ Set Anthropic API key in Settings"); return; }
+    if (!clKey) { setSt("⚠ Set Anthropic API key in Settings"); return ""; }
     setBusy("brief"); setSt("Writing creative brief...");
     let extra = "";
     const usedItems = getUsedItems();
@@ -254,7 +276,8 @@ export default function Studio({ niche, ctx, clKey, gemKey, gathosKey, gathosVid
     if (version > 1) extra = `\n\nIMPORTANT: This is VERSION ${version} of this topic. You MUST use COMPLETELY DIFFERENT specific items, examples, facts, and angles. Find obscure, lesser-known, surprising entries. Do NOT repeat the obvious choices.`;
     if (usedItems.length) extra += `\n\nALREADY USED IN PREVIOUS VERSIONS — DO NOT REPEAT ANY OF THESE:\n${usedItems.join(", ")}\n\nYou MUST pick DIFFERENT items that are NOT in this list.`;
     try {
-      const r = await claude(SYS_BRIEF, `Topic: ${ctx.topic}\nNiche: ${niche.name}\nDuration: ${durMeta(dur).label}\n\nSTRICT LIMIT: Stay under 9,000 characters. Detailed but concise.${extra}${lessonsNote(niche.id)}`, clKey);
+      const raw = await claude(SYS_BRIEF, `Topic: ${ctx.topic}\nNiche: ${niche.name}\nDuration: ${durMeta(dur).label}\n\nSTRICT LIMIT: Stay under 9,000 characters. Detailed but concise.${extra}${lessonsNote(niche.id)}`, clKey);
+      const r = cleanBrief(raw);
       setBrief(r); setBriefOpen(true); persist({ brief: r });
       let hid = ctx.histId;
       if (!hid && addH) { hid = addH(niche.id, ctx.topic, version, r, ""); ctx.histId = hid; }
@@ -263,17 +286,20 @@ export default function Studio({ niche, ctx, clKey, gemKey, gathosKey, gathosVid
         .then(raw => { try { const items = parseJson(raw); if (items.length && hid && updateH) updateH(niche.id, hid, { usedItems: items }); } catch {} })
         .catch(() => {});
       setSt("✅ Brief ready — it now guides the script");
-    } catch (e) { setSt("⚠ " + e.message); }
-    setBusy("");
+      setBusy(""); return r;
+    } catch (e) { setSt("⚠ " + e.message); setBusy(""); return ""; }
   };
 
   // ---- Stage 1: Script ----
   const genScript = async () => {
     if (!clKey) { setSt("⚠ Set Anthropic API key in Settings"); return ""; }
+    // The brief always drives the script — if there isn't one yet, write it first.
+    let theBrief = brief;
+    if (!theBrief) { theBrief = await genBrief(); if (!theBrief) return ""; }
     setBusy("script"); setSt("Writing full narration script...");
     try {
       const { label: durLabel, words } = durMeta(dur);
-      const guide = brief ? `\n\nUse this creative brief (built from competitor research) as your guide for angle, facts and structure:\n${brief.slice(0, 6000)}` : "";
+      const guide = theBrief ? `\n\nUse this creative brief (built from competitor research) as your guide for angle, facts and structure — follow its sections and cover its key facts:\n${theBrief.slice(0, 8000)}` : "";
       const fmtNote = vertical ? "\nFORMAT: This is a vertical YouTube Short — punchy, no slow build, hook in the first 2 seconds." : "";
       const r = await claude(SYS_SCRIPT, `Topic: ${ctx.topic}\nNiche: ${niche.name}${niche.desc ? ` — ${niche.desc}` : ""}\nTarget length: ${durLabel} → aim for ≈${words} words, landing comfortably in the MIDDLE of that range. Do NOT exceed the upper bound.${fmtNote}${guide}${tplScriptNote()}${lessonsNote(niche.id)}`, clKey, { maxTokens: 16000 });
       const clean = cleanScript(r);
@@ -357,7 +383,7 @@ export default function Studio({ niche, ctx, clKey, gemKey, gathosKey, gathosVid
     try {
       const url = await gathosImage(STYLE_WRAP[style](s.visual), gathosKey, { aspect: format });
       setScene(i, { img: url, video: null, imgLoading: false, credit: null });
-      idbSet(mk(`img:${i}`), url); idbDel(mk(`vid:${i}`));
+      saveMedia(mk(`img:${i}`), url, url); delMedia(mk(`vid:${i}`));
     } catch (e) { setScene(i, { imgErr: e.message, imgLoading: false }); }
   };
   // AI-generated video clip for one shot: animates the existing frame (ti2av) or goes text-to-video.
@@ -377,7 +403,7 @@ export default function Studio({ niche, ctx, clKey, gemKey, gathosKey, gathosVid
         isCancelled: () => cancelRef.current,
       });
       setScene(i, { video: { blobUrl: URL.createObjectURL(blob), thumb: s.img || null }, imgLoading: false });
-      idbSet(mk(`vid:${i}`), { blob, thumb: s.img || null, credit: null });
+      saveMedia(mk(`vid:${i}`), { blob, thumb: s.img || null, credit: null }, blob);
       recordEvent(niche.id, "clip_generated", { shot: i, hadFrame: !!s.img });
       setSt(`✅ Shot #${i + 1} clip ready`);
     } catch (e) { setScene(i, { imgErr: e.message, imgLoading: false }); }
@@ -415,7 +441,7 @@ export default function Studio({ niche, ctx, clKey, gemKey, gathosKey, gathosVid
         setSt(`#${i + 1}: pulling CC YouTube clip…`);
         const { file } = await fetchYouTubeVideo(asset.videoId, { onStatus: m => setSt(`#${i + 1}: ${m}`) });
         setScene(i, { video: { blobUrl: URL.createObjectURL(file), thumb: asset.thumb }, img: null, credit, imgLoading: false });
-        idbSet(mk(`vid:${i}`), { blob: file, thumb: asset.thumb, credit }); idbDel(mk(`img:${i}`));
+        saveMedia(mk(`vid:${i}`), { blob: file, thumb: asset.thumb, credit }, file); delMedia(mk(`img:${i}`));
         setSt(`✅ Clip on #${i + 1} — trim it short and keep your narration over it (fair use)`);
       } catch (e) {
         setScene(i, { imgErr: `YouTube pull failed — ${e.message}`, imgLoading: false });
@@ -430,23 +456,25 @@ export default function Studio({ niche, ctx, clKey, gemKey, gathosKey, gathosVid
         if (!resp.ok) throw new Error(`Asset fetch ${resp.status}`);
         const blob = await resp.blob();
         setScene(i, { video: { blobUrl: URL.createObjectURL(blob), thumb: a.thumb }, img: null, credit, imgLoading: false });
-        idbSet(mk(`vid:${i}`), { blob, thumb: a.thumb, credit }); idbDel(mk(`img:${i}`));
+        saveMedia(mk(`vid:${i}`), { blob, thumb: a.thumb, credit }, blob); delMedia(mk(`img:${i}`));
       } else {
         const dataUrl = await urlToDataURL(a.src);
         setScene(i, { img: dataUrl, video: null, credit, imgLoading: false });
-        idbSet(mk(`img:${i}`), dataUrl); idbDel(mk(`vid:${i}`));
+        saveMedia(mk(`img:${i}`), dataUrl, dataUrl); delMedia(mk(`vid:${i}`));
       }
     } catch (e) { setScene(i, { imgErr: e.message, imgLoading: false }); }
   };
   const genAllVisuals = async (list) => {
     const arr = list || scenes;
     setBusy("images");
-    for (let i = 0; i < arr.length; i += 3) {
+    const CONC = 5; // Gathos handles ~5 concurrent jobs; 429s are retried inside gathosImage
+    const hasStock = covKey || pixKey || pexKey || naraKey;
+    for (let i = 0; i < arr.length; i += CONC) {
       if (cancelRef.current) break;
-      setSt(`${style === "realasset" ? "Sourcing" : "Generating"} shots ${i + 1}-${Math.min(i + 3, arr.length)} of ${arr.length}...`);
-      await Promise.all([0, 1, 2].map(k => {
+      setSt(`${style === "realasset" ? "Sourcing" : "Generating"} shots ${i + 1}-${Math.min(i + CONC, arr.length)} of ${arr.length}...`);
+      await Promise.all(Array.from({ length: CONC }, (_, k) => {
         if (i + k >= arr.length) return null;
-        const wantReal = style === "realasset" || (arr[i + k].sourceType === "real" && (covKey || pixKey || pexKey));
+        const wantReal = style === "realasset" || (arr[i + k].sourceType === "real" && hasStock);
         return wantReal ? sourceScene(i + k, arr) : genImage(i + k, arr);
       }));
     }
@@ -598,7 +626,7 @@ export default function Studio({ niche, ctx, clKey, gemKey, gathosKey, gathosVid
         out = await renderVideo(common);
       }
       setVideo({ url: URL.createObjectURL(out.blob), ext: out.ext, duration: out.duration, size: out.blob.size });
-      idbSet(mk("video"), { blob: out.blob, ext: out.ext, duration: out.duration });
+      saveMedia(mk("video"), { blob: out.blob, ext: out.ext, duration: out.duration }, out.blob);
       recordEvent(niche.id, "video_rendered", { topic: ctx.topic, style, format, res, duration: Math.round(out.duration), music: !!music, template: tpl?.name || null });
       reflect(niche.id, clKey);
       setSt(`✅ Video rendered — ${fmtTime(out.duration)} · ${(out.blob.size / 1048576).toFixed(1)} MB (${out.ext.toUpperCase()})`);
@@ -721,7 +749,7 @@ export default function Studio({ niche, ctx, clKey, gemKey, gathosKey, gathosVid
         {!brief && !briefOpen && <p className="yt-hint" style={{ marginBottom: 0 }}>A research-driven brief (angle, facts, audience) that guides the script. Versions of the same topic automatically avoid items already used.</p>}
         {briefOpen && <div className="yt-card-b">
           {getUsedItems().length > 0 && <p className="yt-hint">Already used in earlier versions ({getUsedItems().length}): {getUsedItems().join(", ")}</p>}
-          <textarea className="yt-input vs-script-area" rows="10" value={brief} onChange={e => setBrief(e.target.value)} onBlur={() => persist()} placeholder="Write or generate the brief here."/>
+          <textarea className="yt-input vs-script-area vs-script-read" rows="10" value={brief} onChange={e => setBrief(e.target.value)} onBlur={() => persist()} placeholder="Write or generate the brief here."/>
         </div>}
       </div>
       <div className="yt-card">

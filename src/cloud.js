@@ -18,6 +18,10 @@ export const fn = {
   set: makeFunctionReference("kv:set"),
   setMany: makeFunctionReference("kv:setMany"),
   remove: makeFunctionReference("kv:remove"),
+  mediaUploadUrl: makeFunctionReference("media:uploadUrl"),
+  mediaSet: makeFunctionReference("media:set"),
+  mediaList: makeFunctionReference("media:list"),
+  mediaRemove: makeFunctionReference("media:remove"),
 };
 
 // In-memory cache = source of truth for synchronous reads. Seeded from localStorage,
@@ -84,6 +88,54 @@ export function attachBackend(setMutation, removeMutation) {
   };
 }
 export function detachBackend() { backend = null; }
+
+// ---------- Cross-device media (Convex file storage) ----------
+// The heavy binaries (frames, clips, renders) can't live in the kv rows, so they go to Convex
+// file storage. mediaUrls maps a media key → a served URL, hydrated on sign-in; mediaBackend
+// uploads new blobs. All best-effort: any failure just falls back to local IndexedDB.
+const mediaUrls = new Map();
+let mediaBackend = null;
+
+export function hydrateMediaFromCloud(rows) {
+  for (const { key, url } of rows) mediaUrls.set(key, url);
+}
+export function cloudMediaUrl(key) { return mediaUrls.get(key); }
+export function cloudMediaEnabled() { return !!mediaBackend; }
+
+export function attachMediaBackend(uploadUrlMutation, setMutation, removeMutation) {
+  const queue = [];
+  let running = 0;
+  const pump = () => {
+    while (running < 2 && queue.length) {
+      const job = queue.shift(); running++;
+      job().catch(() => {}).finally(() => { running--; pump(); });
+    }
+  };
+  mediaBackend = {
+    put(key, blob) {
+      queue.push(async () => {
+        const postUrl = await uploadUrlMutation({});
+        const res = await fetch(postUrl, { method: "POST", headers: { "Content-Type": blob.type || "application/octet-stream" }, body: blob });
+        if (!res.ok) throw new Error("upload " + res.status);
+        const { storageId } = await res.json();
+        await setMutation({ key, storageId });
+      });
+      pump();
+    },
+    remove(key) { removeMutation({ key }).catch(() => {}); mediaUrls.delete(key); },
+  };
+}
+export function detachMediaBackend() { mediaBackend = null; }
+
+// Upload a blob (or data URL) for a media key so it's available on other devices. No-op offline.
+export async function cloudPutMedia(key, data) {
+  if (!mediaBackend) return;
+  try {
+    const blob = typeof data === "string" ? await (await fetch(data)).blob() : data;
+    if (blob && blob.size) mediaBackend.put(key, blob);
+  } catch {}
+}
+export function cloudRemoveMedia(key) { mediaBackend?.remove(key); }
 
 // Which localStorage keys belong to the app (for first-login migration into the account).
 export function appLocalKeys() {
