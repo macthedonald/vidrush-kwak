@@ -116,6 +116,16 @@ The app is a static Vite SPA — Vercel builds it with zero config beyond the in
   - `COBALT_API_KEY` — only if your instance requires `Api-Key` auth.
   Without it, YouTube pulls return a clear "set COBALT_API_URL" message; Wikimedia/Archive footage still works everywhere. Pick short clips — long videos can exceed serverless limits. (The **Learn from a video** feature never needs this — Gemini reads YouTube links directly.)
 
+## Publish to YouTube + performance learning
+
+The SEO step has a **Publish to YouTube** card: sign in with Google (browser OAuth via Google Identity Services — no password or client secret touches VidRush), pick visibility/schedule, and it uploads the render with the SEO title/description/tags and your thumbnail. **Sync performance → learning** pulls each published video's views / average-view-% / likes back into that niche's learning memory so scripts improve from real outcomes.
+
+Setup (one time) in **Google Cloud Console**:
+1. Enable **YouTube Data API v3** and **YouTube Analytics API**.
+2. Create an **OAuth 2.0 Client ID** (Web application). Add your origins to **Authorized JavaScript origins** — e.g. `https://kakkao.vercel.app` and `http://localhost:5173`.
+3. On the **OAuth consent screen**, add the `youtube.upload`, `youtube`, and `yt-analytics.readonly` scopes; while the app is in *testing*, add your Google account as a **test user**.
+4. Put the Client ID in Vercel as `VITE_GOOGLE_CLIENT_ID` (a sensible default ships in the code; the env var overrides it).
+
 ## Notes
 
 - Chrome/Edge use the WebCodecs fast encoder (much faster than realtime); browsers without it fall back to a realtime recorder that needs the tab focused.
