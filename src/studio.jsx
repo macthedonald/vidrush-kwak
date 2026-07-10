@@ -15,6 +15,7 @@ import { recordEvent, lessonsNote, reflect } from "./memory";
 import { cloudGet as ls, cloudSet as ss, cloudPutMedia, cloudMediaUrl, cloudRemoveMedia } from "./cloud.js";
 import { pfetch } from "./net.js";
 import { fetchYouTubeVideo } from "./yt.js";
+import { connectYouTube, uploadVideo, setThumbnail, myChannelId, videoAnalytics } from "./youtube.js";
 
 const STEPS = ["Script", "Storyboard", "Visuals", "Voiceover", "Render", "Thumbnail", "SEO Package"];
 
@@ -148,6 +149,12 @@ export default function Studio({ niche, ctx, clKey, gemKey, gathosKey, gathosVid
   const [musicProg, setMusicProg] = useState(-1);
   const [thumbState, setThumbState] = useState({});
   const [tplId, setTplId] = useState(null);
+  const [ytPrivacy, setYtPrivacy] = useState("private");
+  const [ytSchedule, setYtSchedule] = useState("");
+  const [ytBusy, setYtBusy] = useState(false);
+  const [ytProg, setYtProg] = useState(0);
+  const [ytStatus, setYtStatus] = useState("");
+  const [perfBusy, setPerfBusy] = useState(false);
   const templates = ls("vr8-templates", []);
   const tpl = templates.find(t => t.id === tplId) || null;
   const focusRef = useRef("");
@@ -699,6 +706,62 @@ export default function Studio({ niche, ctx, clKey, gemKey, gathosKey, gathosVid
     ]), `${slug(ctx.topic)}_seo_package.zip`);
   };
 
+  // ---- Publish to YouTube (OAuth via Google Identity Services) ----
+  const buildDescription = () => {
+    const parts = [];
+    if (seo?.description) parts.push(seo.description);
+    if ((seo?.chapters || []).length) parts.push("\nChapters:\n" + seo.chapters.join("\n"));
+    if ((seo?.credits || []).length) parts.push("\nCredits / attribution:\n" + seo.credits.join("\n"));
+    return parts.join("\n").slice(0, 4900);
+  };
+  const publishToYouTube = async () => {
+    const v = await idbGet(mk("video"));
+    if (!v?.blob) { setYtStatus("⚠ Render the video first (step 5)."); return; }
+    setYtBusy(true); setYtProg(0); setYtStatus("Connecting to YouTube…");
+    try {
+      const token = await connectYouTube();
+      const title = (seo?.titles?.[0] || ctx.topic).slice(0, 100);
+      const publishAt = ytSchedule ? new Date(ytSchedule).toISOString() : null;
+      setYtStatus(publishAt ? "Uploading (will publish at the scheduled time)…" : "Uploading to YouTube…");
+      const video = await uploadVideo({
+        token, blob: v.blob, title, description: buildDescription(), tags: seo?.tags || [],
+        privacyStatus: ytPrivacy, publishAt, onProgress: p => setYtProg(p),
+      });
+      if (!video?.id) throw new Error("Upload finished but no video id came back");
+      // Set the selected thumbnail if we have one.
+      const thumbs = thumbState.thumbs || [];
+      const thumb = thumbs.find(t => t?.url)?.url;
+      if (thumb) { try { const tb = await (await fetch(thumb)).blob(); await setThumbnail({ token, videoId: video.id, blob: tb }); } catch (e) { console.warn("thumbnail:", e.message); } }
+      const url = `https://youtu.be/${video.id}`;
+      if (ctx.histId && updateH) updateH(niche.id, ctx.histId, { youtubeId: video.id, youtubeUrl: url, youtubePrivacy: ytPrivacy, publishedAt: new Date().toISOString() });
+      recordEvent(niche.id, "video_published", { topic: ctx.topic, videoId: video.id, privacy: ytPrivacy, scheduled: !!publishAt });
+      setYtStatus(`✅ Published: ${url}`);
+    } catch (e) { setYtStatus("⚠ " + e.message); }
+    setYtBusy(false);
+  };
+  // ---- Pull real performance back into the learning memory ----
+  const syncPerformance = async () => {
+    const published = (niche.history || []).filter(h => h.youtubeId);
+    if (!published.length) { setYtStatus("No published videos yet — publish one first."); return; }
+    setPerfBusy(true); setYtStatus("Reading your YouTube performance…");
+    try {
+      const token = await connectYouTube();
+      const channelId = await myChannelId(token);
+      if (!channelId) throw new Error("Couldn't find your channel");
+      const rows = await videoAnalytics(token, channelId, published.map(h => h.youtubeId));
+      const byId = Object.fromEntries(rows.map(r => [r.videoId, r]));
+      let n = 0;
+      for (const h of published) {
+        const r = byId[h.youtubeId]; if (!r) continue;
+        recordEvent(niche.id, "video_performance", { topic: h.topic, videoId: h.youtubeId, views: r.views, avgViewPct: Math.round(r.avgViewPct || 0), likes: r.likes, subs: r.subscribersGained });
+        n++;
+      }
+      await reflect(niche.id, clKey); // distill lessons from the real outcomes
+      setYtStatus(`✅ Synced performance for ${n} video(s) into the niche's learning memory.`);
+    } catch (e) { setYtStatus("⚠ " + e.message); }
+    setPerfBusy(false);
+  };
+
   // ---- Autopilot ----
   const autopilot = async () => {
     cancelRef.current = false; setAuto(true);
@@ -949,6 +1012,25 @@ export default function Studio({ niche, ctx, clKey, gemKey, gathosKey, gathosVid
         {voicedCount > 0 && <button className="yt-btn-o" onClick={() => dlVoiceover("mp3")}>Voiceover MP3</button>}
         {video && <a className="yt-btn-o" href={video.url} download={`${slug(ctx.topic)}.${video.ext}`}>Video</a>}
       </div>
+
+      <div className="vs-publish">
+        <div className="yt-card-ht" style={{ fontSize: 14 }}>Publish to YouTube</div>
+        <p className="yt-hint">Uploads the rendered video with the SEO title, description, tags and your thumbnail. You sign in with Google — VidRush never sees your password.</p>
+        <div className="vs-publish-row">
+          <div><label className="yt-label">Visibility</label>
+            <select className="yt-sel" value={ytPrivacy} onChange={e => setYtPrivacy(e.target.value)} disabled={ytBusy}>
+              <option value="private">Private</option><option value="unlisted">Unlisted</option><option value="public">Public</option>
+            </select></div>
+          <div><label className="yt-label">Schedule (optional)</label>
+            <input className="yt-input" type="datetime-local" value={ytSchedule} onChange={e => setYtSchedule(e.target.value)} disabled={ytBusy}/></div>
+        </div>
+        <div className="yt-btn-row" style={{ marginTop: 12 }}>
+          <button className={`yt-btn ${ytBusy ? "yt-btn-ld" : ""}`} onClick={publishToYouTube} disabled={ytBusy || !video}>{ytBusy ? "Publishing…" : video ? "Sign in & publish" : "Render a video first"}</button>
+          <button className={`yt-btn-o ${perfBusy ? "yt-btn-ld" : ""}`} onClick={syncPerformance} disabled={perfBusy}>Sync performance → learning</button>
+        </div>
+        {ytBusy && ytProg > 0 && <div className="vs-progress" style={{ marginTop: 10 }}><div className="vs-progress-fill" style={{ width: `${Math.round(ytProg * 100)}%` }}/><span className="vs-progress-t">{Math.round(ytProg * 100)}%</span></div>}
+        {ytStatus && <p className={`yt-hint ${ytStatus.startsWith("⚠") ? "err" : ""}`} style={{ marginTop: 10 }}>{ytStatus.startsWith("✅ Published: ") ? <>✅ Published: <a href={ytStatus.slice(13)} target="_blank" rel="noreferrer">{ytStatus.slice(13)}</a></> : ytStatus}</p>}
+      </div>
     </div>}
     </div>
     {voiceModal && <VoiceModal voiceSel={voiceSel} pick={pickVoice} close={() => setVoiceModal(false)} gemKey={gemKey} ai33Key={ai33Key} ai33Base={ai33Base}/>}
@@ -1150,6 +1232,9 @@ const STUDIO_CSS = `
 .vs-music-add{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
 .vs-music-add .yt-input{flex:1;min-width:220px}
 .vs-render-ctrl{display:flex;gap:16px;align-items:end;margin-top:14px;flex-wrap:wrap}
+.vs-publish{margin-top:18px;padding-top:16px;border-top:1px solid var(--border)}
+.vs-publish-row{display:flex;gap:12px;flex-wrap:wrap;margin-top:10px}
+.vs-publish-row>div{flex:1;min-width:160px}
 .vs-progress{position:relative;height:26px;background:var(--surface2);border:1px solid var(--border);border-radius:13px;margin-top:16px;overflow:hidden}
 .vs-progress-fill{height:100%;background:var(--blue);transition:width .3s;border-radius:13px}
 .vs-progress-t{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:var(--text)}
