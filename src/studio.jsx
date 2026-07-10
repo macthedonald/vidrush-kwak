@@ -4,6 +4,7 @@ import {
   geminiTTS, groqTranscribe, concatPcm, pcmToWav, pcmToMp3,
   coverrVideos, pixabayVideos, pixabayPhotos, pexelsVideos, pexelsPhotos, sourceRealAsset, wikimediaMedia, archiveVideos, archiveResolveFile, naraMedia, youtubeCC, urlToDataURL,
   makeZip, fmtTime, estDuration, renderVideo, renderVideoFast, canRenderFast, loadImage, loadVideoEl, pickMime,
+  buildAudioMix, preparePreviewShots, paintPreviewFrame,
 } from "./pipeline";
 import { gathosImage, gathosVideo, GATHOS_STYLE } from "./gathos";
 import { GEMINI_VOICES, ELEVENLABS_VOICES, MINIMAX_VOICES, ai33ListVoices, ai33TTS, ai33Clone, ai33DeleteClone, ai33Suno, decodeAudioBuffer, decodeToPcm24k, AI33_DEFAULT_BASE } from "./ai33";
@@ -155,6 +156,7 @@ export default function Studio({ niche, ctx, clKey, gemKey, gathosKey, gathosVid
   const [ytProg, setYtProg] = useState(0);
   const [ytStatus, setYtStatus] = useState("");
   const [perfBusy, setPerfBusy] = useState(false);
+  const [previewData, setPreviewData] = useState(null);
   const templates = ls("vr8-templates", []);
   const tpl = templates.find(t => t.id === tplId) || null;
   const focusRef = useRef("");
@@ -289,6 +291,41 @@ export default function Studio({ niche, ctx, clKey, gemKey, gathosKey, gathosVid
     return { shots, audioSegs: segsOut, total: t };
   };
   const totalRuntime = () => buildTimeline().total;
+
+  // Reorder shots (moves the whole shot — narration, visual, media, timing follow). The shot's
+  // section is normalized to its new neighbour so voiceover grouping stays coherent.
+  const moveScene = (i, dir) => {
+    const j = i + dir;
+    if (j < 0 || j >= scenes.length) return;
+    const n = [...scenes];
+    const moved = { ...n[i], section: (n[j].section || n[i].section) };
+    n[i] = { ...n[j], section: n[i].section };
+    n[j] = moved;
+    setScenes(n); setAudioSegs([]); clearSegsIdb(); persist({ scenes: n });
+  };
+
+  // Live preview: assemble the exact render timeline (shots + voiceover + music + brand) and play
+  // it on a canvas with audio — no encoding, so you can check pacing/visuals before rendering.
+  const openPreview = async () => {
+    const { shots, audioSegs: segsOut, total } = buildTimeline();
+    if (!shots.length) { setSt("⚠ Build the storyboard first"); return; }
+    setBusy("preview"); setSt("Preparing preview…");
+    try {
+      const prepared = [];
+      for (const s of shots) prepared.push({
+        ...s,
+        imgEl: s.img ? await loadImage(s.img).catch(() => null) : null,
+        vidEl: s.video?.blobUrl ? await loadVideoEl(s.video.blobUrl).catch(() => null) : null,
+      });
+      const T = total + 0.4;
+      const mix = await buildAudioMix({ audioSegs: segsOut, music: music ? { buffer: music.buffer, volume: musicVol } : null, total: T });
+      const brand = ls("vr8-brand", null);
+      let logoEl = null; if (brand?.logo) { try { logoEl = await loadImage(brand.logo); } catch {} }
+      setPreviewData({ shots: preparePreviewShots(prepared), mix, total: T, W: vertical ? 720 : 1280, H: vertical ? 1280 : 720, style, subtitles: subs, brand, logoEl });
+      setSt("");
+    } catch (e) { setSt("⚠ " + e.message); }
+    setBusy("");
+  };
 
   // Structure template (from "Learn from a video") + learned preferences
   const tplScriptNote = () => tpl ? `\n\nSTRUCTURE TEMPLATE — replicate this proven video structure exactly:\n${JSON.stringify({ summary: tpl.dna.summary, hook: tpl.dna.hook, phases: tpl.dna.phases, narration: tpl.dna.narration, rules: tpl.dna.replicationRules })}` : "";
@@ -856,6 +893,8 @@ export default function Studio({ niche, ctx, clKey, gemKey, gathosKey, gathosVid
       {!script && <p className="yt-hint">Write the script first (step 1).</p>}
       {scenes.map((s, i) => <div key={i} className="vs-scene">
         <div className="vs-scene-head"><span className="vs-scene-num">#{i + 1}</span><span className="vs-scene-sec">{s.section}</span><span className="vs-scene-dur">~{fmtTime(estDuration(s.narration))}</span>
+          <button className="vs-move" title="Move up" disabled={i === 0} onClick={() => moveScene(i, -1)}>↑</button>
+          <button className="vs-move" title="Move down" disabled={i === scenes.length - 1} onClick={() => moveScene(i, 1)}>↓</button>
           <button className="yt-x" onClick={() => { const n = scenes.filter((_, j) => j !== i); setScenes(n); setAudioSegs([]); clearSegsIdb(); idbDelPrefix(mk("img:")); idbDelPrefix(mk("vid:")); persist({ scenes: n }); }}>✕</button></div>
         <label className="yt-label">Narration (8-14 words)</label>
         <textarea className="yt-input vs-scene-area" rows="1" value={s.narration} onChange={e => setScene(i, { narration: e.target.value })} onFocus={e => { focusRef.current = e.target.value; }} onBlur={e => { persist(); if (focusRef.current && focusRef.current !== e.target.value) recordEvent(niche.id, "narration_edited", { before: focusRef.current, after: e.target.value }); }}/>
@@ -981,6 +1020,10 @@ export default function Studio({ niche, ctx, clKey, gemKey, gathosKey, gathosVid
           ? <button className="yt-btn-big" style={{ flex: 1 }} onClick={doRender} disabled={disabled || !scenes.length}>Render video</button>
           : <button className="yt-btn-big yt-btn-big-ld" style={{ flex: 1 }} onClick={() => { renderCancel.current = true; }}>Cancel render</button>}
       </div>
+      <div className="yt-btn-row" style={{ marginTop: 10 }}>
+        <button className={`yt-btn-o ${busy === "preview" ? "yt-btn-ld" : ""}`} onClick={openPreview} disabled={disabled || !scenes.length}>{busy === "preview" ? "Preparing…" : "▶ Preview (no render)"}</button>
+        <span className="yt-hint" style={{ margin: 0, alignSelf: "center" }}>Play the assembled video with audio before you commit to a full render.</span>
+      </div>
       {voicedCount < sections.length && scenes.length > 0 && <p className="yt-hint" style={{ marginTop: 8 }}>⚠ {sections.length - voicedCount} section(s) not voiced — they'll render silent with estimated timing.</p>}
       {renderProg >= 0 && <div className="vs-progress"><div className="vs-progress-fill" style={{ width: `${Math.round(renderProg * 100)}%` }}/><span className="vs-progress-t">{Math.round(renderProg * 100)}%</span></div>}
       {video && <div className="vs-video-out">
@@ -1034,11 +1077,69 @@ export default function Studio({ niche, ctx, clKey, gemKey, gathosKey, gathosVid
     </div>}
     </div>
     {voiceModal && <VoiceModal voiceSel={voiceSel} pick={pickVoice} close={() => setVoiceModal(false)} gemKey={gemKey} ai33Key={ai33Key} ai33Base={ai33Base}/>}
+    {previewData && <PreviewModal prep={previewData} onClose={() => setPreviewData(null)}/>}
     <style>{STUDIO_CSS}</style>
   </div>);
 }
 
 // ---- Voice selection modal: Gemini + AI33 (ElevenLabs / MiniMax / Fish) + cloning ----
+// Live preview player: paints the render timeline to a canvas and plays the pre-mixed audio.
+function PreviewModal({ prep, onClose }) {
+  const canvasRef = useRef(null);
+  const [playing, setPlaying] = useState(false);
+  const [now, setNow] = useState(0);
+  const ctxRef = useRef(null), srcRef = useRef(null), rafRef = useRef(0), clockRef = useRef(0), playIdx = useRef(-1);
+
+  const paint = (t) => {
+    const c = canvasRef.current; if (!c) return;
+    const g = c.getContext("2d");
+    const cur = paintPreviewFrame(g, prep.shots, t, prep.W, prep.H, prep.style, prep.subtitles, prep.brand, prep.logoEl, prep.total);
+    if (cur?.vidEl && playIdx.current !== cur.idx) {
+      if (playIdx.current >= 0 && prep.shots[playIdx.current]?.vidEl) prep.shots[playIdx.current].vidEl.pause();
+      try { cur.vidEl.currentTime = Math.max(0, t - cur.start); cur.vidEl.play().catch(() => {}); } catch {}
+      playIdx.current = cur.idx;
+    }
+  };
+  const stopAudio = () => { try { srcRef.current?.stop(); } catch {} srcRef.current = null; };
+  const pause = () => {
+    cancelAnimationFrame(rafRef.current); stopAudio();
+    prep.shots.forEach(s => s.vidEl && s.vidEl.pause()); playIdx.current = -1; setPlaying(false);
+  };
+  const play = (from) => {
+    const ctx = ctxRef.current || new (window.AudioContext || window.webkitAudioContext)(); ctxRef.current = ctx;
+    if (ctx.state === "suspended") ctx.resume();
+    stopAudio();
+    const start = (from ?? now); const s0 = start >= prep.total - 0.05 ? 0 : start;
+    const src = ctx.createBufferSource(); src.buffer = prep.mix; src.connect(ctx.destination); src.start(0, s0); srcRef.current = src;
+    clockRef.current = performance.now() - s0 * 1000;
+    setPlaying(true);
+    const loop = () => {
+      const t = (performance.now() - clockRef.current) / 1000;
+      if (t >= prep.total) { setNow(prep.total); paint(prep.total); pause(); return; }
+      setNow(t); paint(t);
+      rafRef.current = requestAnimationFrame(loop);
+    };
+    rafRef.current = requestAnimationFrame(loop);
+  };
+  const seek = (t) => { const was = playing; if (was) pause(); setNow(t); paint(t); if (was) play(t); };
+
+  useEffect(() => { paint(0); return () => { cancelAnimationFrame(rafRef.current); stopAudio(); try { ctxRef.current?.close(); } catch {} }; }, []);
+
+  return (
+    <div className="vs-pex-modal" onClick={onClose}><div className="vs-preview-box" onClick={e => e.stopPropagation()}>
+      <div className="vs-row-between"><span className="yt-card-ht">Preview</span><button className="yt-x" onClick={onClose}>✕</button></div>
+      <canvas ref={canvasRef} width={prep.W} height={prep.H} className="vs-preview-canvas"/>
+      <div className="vs-preview-ctrls">
+        <button className="yt-btn" onClick={() => (playing ? pause() : play())}>{playing ? "❚❚ Pause" : "▶ Play"}</button>
+        <span className="vs-vo-dur">{fmtTime(now)}</span>
+        <input className="vs-preview-seek" type="range" min="0" max={prep.total} step="0.05" value={now} onChange={e => seek(+e.target.value)}/>
+        <span className="vs-vo-dur">{fmtTime(prep.total)}</span>
+      </div>
+      <p className="yt-hint" style={{ marginTop: 8 }}>This is a live preview — the final render is frame-accurate and higher quality.</p>
+    </div></div>
+  );
+}
+
 function VoiceModal({ voiceSel, pick, close, gemKey, ai33Key, ai33Base }) {
   const [tab, setTab] = useState(["gemini", "elevenlabs", "minimax", "fishaudio", "clone"].includes(voiceSel.provider) ? (voiceSel.provider === "clone" ? "clones" : voiceSel.provider) : "gemini");
   const [live, setLive] = useState({});
@@ -1232,6 +1333,13 @@ const STUDIO_CSS = `
 .vs-music-add{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
 .vs-music-add .yt-input{flex:1;min-width:220px}
 .vs-render-ctrl{display:flex;gap:16px;align-items:end;margin-top:14px;flex-wrap:wrap}
+.vs-move{background:none;border:1px solid var(--border);color:var(--text2);cursor:pointer;width:22px;height:22px;border-radius:5px;font-size:12px;line-height:1;flex-shrink:0}
+.vs-move:hover:not(:disabled){background:var(--surface2);color:var(--text)}
+.vs-move:disabled{opacity:.35;cursor:not-allowed}
+.vs-preview-box{background:var(--bg);border-radius:var(--radius2);padding:16px;max-width:min(920px,94vw);width:100%;max-height:92vh;overflow:auto}
+.vs-preview-canvas{width:100%;height:auto;border-radius:var(--radius3);background:#000;margin-top:10px;display:block}
+.vs-preview-ctrls{display:flex;align-items:center;gap:12px;margin-top:12px}
+.vs-preview-seek{flex:1;accent-color:var(--blue)}
 .vs-publish{margin-top:18px;padding-top:16px;border-top:1px solid var(--border)}
 .vs-publish-row{display:flex;gap:12px;flex-wrap:wrap;margin-top:10px}
 .vs-publish-row>div{flex:1;min-width:160px}

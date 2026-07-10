@@ -692,6 +692,15 @@ function drawBrand(g, brand, logoEl, W, H, now, total) {
   }
 }
 
+// Preview support: expose the frame painter and a prep that adds idx/words to already-timed shots,
+// so the Studio can play a live preview (canvas + audio) without encoding a file.
+export function preparePreviewShots(shots) {
+  return shots.map((s, idx) => ({ ...s, idx, words: (s.narration || "").split(/\s+/).filter(Boolean) }));
+}
+export function paintPreviewFrame(g, timeline, now, W, H, style, subtitles, brand, logoEl, total) {
+  return paintFrame(g, timeline, now, W, H, style, subtitles, brand, logoEl, total);
+}
+
 // Offline audio mix: voiceover segments + ducked music → stereo 48k AudioBuffer.
 export async function buildAudioMix({ audioSegs = [], music = null, total, sampleRate = 48000 }) {
   const len = Math.max(1, Math.ceil(total * sampleRate));
