@@ -62,6 +62,13 @@ async function unpackSeg(blob) {
   return { pcm, rate: meta.rate, words: meta.words || null };
 }
 
+// SRT timestamp: HH:MM:SS,mmm
+const srtTime = (s) => {
+  const ms = Math.max(0, Math.round(s * 1000));
+  const p = (n, w = 2) => String(n).padStart(w, "0");
+  return `${p(Math.floor(ms / 3600000))}:${p(Math.floor(ms % 3600000 / 60000))}:${p(Math.floor(ms % 60000 / 1000))},${p(ms % 1000, 3)}`;
+};
+
 const STYLES = [
   { id: "cinematic", n: "Cinematic AI", d: "Photoreal AI frames, Ken Burns, fast cuts" },
   { id: "realasset", n: "Real Assets", d: "Coverr + Pixabay clips/photos, Pexels fallback" },
@@ -727,6 +734,15 @@ export default function Studio({ niche, ctx, clKey, gemKey, gathosKey, gathosVid
     } catch (e) { setSt("⚠ " + e.message); }
     setBusy("");
   };
+  // Build an .srt from the timed shots — one cue per shot (matches the on-screen caption grouping).
+  const buildSrt = () => {
+    const { shots } = buildTimeline();
+    return shots
+      .filter(s => (s.narration || "").trim())
+      .map((s, i) => `${i + 1}\n${srtTime(s.start)} --> ${srtTime(s.start + Math.max(0.4, s.duration))}\n${s.narration.trim()}\n`)
+      .join("\n");
+  };
+  const dlSrt = () => dlBlob(new Blob([buildSrt()], { type: "text/plain" }), `${slug(ctx.topic)}.srt`);
   const dlPackage = () => {
     const seoTxt = seo ? [
       "=== TITLES ===", ...(seo.titles || []),
@@ -736,11 +752,13 @@ export default function Studio({ niche, ctx, clKey, gemKey, gathosKey, gathosVid
       "\n=== PINNED COMMENT ===", seo.pinnedComment || "",
       ...((seo.credits || []).length ? ["\n=== ATTRIBUTION / CREDITS (paste into description) ===", ...seo.credits] : []),
     ].join("\n") : "Run Generate SEO first.";
-    dlBlob(makeZip([
+    const files = [
       { name: "script.txt", data: script || "" },
       { name: "storyboard.json", data: JSON.stringify(scenes.map(({ img, video, ...r }) => r), null, 2) },
       { name: "seo_package.txt", data: seoTxt },
-    ]), `${slug(ctx.topic)}_seo_package.zip`);
+    ];
+    if (scenes.length) files.push({ name: "subtitles.srt", data: buildSrt() });
+    dlBlob(makeZip(files), `${slug(ctx.topic)}_seo_package.zip`);
   };
 
   // ---- Publish to YouTube (OAuth via Google Identity Services) ----
@@ -1052,6 +1070,7 @@ export default function Studio({ niche, ctx, clKey, gemKey, gathosKey, gathosVid
       {seo && <SeoView seo={seo}/>}
       <div className="yt-btn-row" style={{ marginTop: 14 }}>
         <button className="yt-btn" onClick={dlPackage} disabled={!script && !scenes.length}>Download package (.zip)</button>
+        {scenes.length > 0 && <button className="yt-btn-o" onClick={dlSrt} title="Subtitle file to upload alongside the video">Subtitles (.srt)</button>}
         {voicedCount > 0 && <button className="yt-btn-o" onClick={() => dlVoiceover("mp3")}>Voiceover MP3</button>}
         {video && <a className="yt-btn-o" href={video.url} download={`${slug(ctx.topic)}.${video.ext}`}>Video</a>}
       </div>
