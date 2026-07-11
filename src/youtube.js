@@ -7,6 +7,7 @@ const CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || "57865949450-v9lhkcbo
 export const YT_SCOPES = [
   "https://www.googleapis.com/auth/youtube.upload",
   "https://www.googleapis.com/auth/youtube",
+  "https://www.googleapis.com/auth/youtube.force-ssl", // captions.insert
   "https://www.googleapis.com/auth/yt-analytics.readonly",
 ];
 
@@ -81,6 +82,23 @@ export async function setThumbnail({ token, videoId, blob }) {
     method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": blob.type || "image/png" }, body: blob,
   });
   if (!r.ok) throw new Error(`Thumbnail set failed (${r.status})`);
+  return r.json();
+}
+
+// Attach an SRT caption track to a video (multipart upload). Best-effort at the call site.
+export async function uploadCaption({ token, videoId, srt, language = "en", name = "English" }) {
+  const meta = { snippet: { videoId, language, name, isDraft: false } };
+  const boundary = "vidrush" + Math.random().toString(36).slice(2);
+  const body =
+    `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(meta)}\r\n` +
+    `--${boundary}\r\nContent-Type: application/octet-stream\r\n\r\n${srt}\r\n` +
+    `--${boundary}--`;
+  const r = await fetch("https://www.googleapis.com/upload/youtube/v3/captions?part=snippet&uploadType=multipart", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": `multipart/related; boundary=${boundary}` },
+    body,
+  });
+  if (!r.ok) throw new Error(`Caption upload failed (${r.status})`);
   return r.json();
 }
 

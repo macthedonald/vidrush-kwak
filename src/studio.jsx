@@ -16,7 +16,7 @@ import { recordEvent, lessonsNote, reflect } from "./memory";
 import { cloudGet as ls, cloudSet as ss, cloudPutMedia, cloudMediaUrl, cloudRemoveMedia } from "./cloud.js";
 import { pfetch } from "./net.js";
 import { fetchYouTubeVideo } from "./yt.js";
-import { connectYouTube, uploadVideo, setThumbnail, myChannelId, videoAnalytics } from "./youtube.js";
+import { connectYouTube, uploadVideo, setThumbnail, uploadCaption, myChannelId, videoAnalytics } from "./youtube.js";
 
 const STEPS = ["Script", "Storyboard", "Visuals", "Voiceover", "Render", "Thumbnail", "SEO Package"];
 
@@ -787,6 +787,8 @@ export default function Studio({ niche, ctx, clKey, gemKey, gathosKey, gathosVid
       const thumbs = thumbState.thumbs || [];
       const thumb = thumbs.find(t => t?.url)?.url;
       if (thumb) { try { const tb = await (await fetch(thumb)).blob(); await setThumbnail({ token, videoId: video.id, blob: tb }); } catch (e) { console.warn("thumbnail:", e.message); } }
+      // Attach the captions so the upload ships accessible + search-indexed.
+      if (scenes.length) { try { const srt = buildSrt(); if (srt.trim()) await uploadCaption({ token, videoId: video.id, srt }); } catch (e) { console.warn("captions:", e.message); } }
       const url = `https://youtu.be/${video.id}`;
       if (ctx.histId && updateH) updateH(niche.id, ctx.histId, { youtubeId: video.id, youtubeUrl: url, youtubePrivacy: ytPrivacy, publishedAt: new Date().toISOString() });
       recordEvent(niche.id, "video_published", { topic: ctx.topic, videoId: video.id, privacy: ytPrivacy, scheduled: !!publishAt });
@@ -1077,7 +1079,7 @@ export default function Studio({ niche, ctx, clKey, gemKey, gathosKey, gathosVid
 
       <div className="vs-publish">
         <div className="yt-card-ht" style={{ fontSize: 14 }}>Publish to YouTube</div>
-        <p className="yt-hint">Uploads the rendered video with the SEO title, description, tags and your thumbnail. You sign in with Google — VidRush never sees your password.</p>
+        <p className="yt-hint">Uploads the rendered video with the SEO title, description, tags, your thumbnail, and an SRT caption track. You sign in with Google — VidRush never sees your password.</p>
         <div className="vs-publish-row">
           <div><label className="yt-label">Visibility</label>
             <select className="yt-sel" value={ytPrivacy} onChange={e => setYtPrivacy(e.target.value)} disabled={ytBusy}>
