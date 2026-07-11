@@ -158,10 +158,11 @@ export const SYS_SEO = `You are a YouTube SEO strategist. For the given topic an
 "tags":["15-20 tags mixing broad and long-tail"],
 "pinnedComment":"a 1-2 sentence engagement-bait pinned comment ending with a question"}`;
 
+const NO_TEXT = "ABSOLUTELY NO TEXT of any kind in the image: no words, no letters, no numbers, no captions, no titles, no subtitles, no signs with readable writing, no labels, no logos, no watermarks, no UI elements, no numerals or counters.";
 export const STYLE_WRAP = {
-  cinematic: p => `${p}. Photorealistic cinematic photography, dramatic lighting, rich color grade, shallow depth of field, 16:9 frame. Must look like a real photograph shot by a professional — real textures, real materials, NOT AI-looking. No text, no watermark, no logos.`,
-  realasset: p => `${p}. Photorealistic documentary still, natural available light, realistic skin and material textures, editorial press-photo style, 16:9 frame. Looks like genuine archival/news photography. No text, no watermark, no logos.`,
-  doodle: p => `Simple hand-drawn stickman doodle illustration: ${p}. Thick black marker line art on a plain white paper background, childlike sketch, minimal props, flat, at most one red accent element, 16:9 frame. No text, no shading, no color fill.`,
+  cinematic: p => `${p}. Photorealistic cinematic photography, dramatic lighting, rich color grade, shallow depth of field, 16:9 frame. Must look like a real photograph shot by a professional — real textures, real materials, NOT AI-looking. ${NO_TEXT}`,
+  realasset: p => `${p}. Photorealistic documentary still, natural available light, realistic skin and material textures, editorial press-photo style, 16:9 frame. Looks like genuine archival/news photography. ${NO_TEXT}`,
+  doodle: p => `Simple hand-drawn stickman doodle illustration: ${p}. Thick black marker line art on a plain white paper background, childlike sketch, minimal props, flat, at most one red accent element, 16:9 frame. No shading, no color fill. ${NO_TEXT}`,
 };
 
 // ---------- Gemini image ----------
@@ -645,12 +646,20 @@ function paintFrame(g, timeline, now, W, H, style, subtitles, brand, logoEl, tot
   const cur = now < 0 ? timeline[0] : (timeline.filter(s => now >= s.start).pop() || timeline[timeline.length - 1]);
   if (!cur) return null;
   const p = Math.min(1, Math.max(0, (now - cur.start) / cur.duration));
-  drawScene(g, cur, p, W, H, style);
+  // If this shot's media isn't ready, hold the nearest neighbouring footage instead of flashing a card.
+  let fallback = null;
+  if (!sceneHasMedia(cur)) {
+    for (let i = cur.idx - 1; i >= 0 && !fallback; i--) if (sceneHasMedia(timeline[i])) fallback = timeline[i];
+    for (let i = cur.idx + 1; i < timeline.length && !fallback; i++) if (sceneHasMedia(timeline[i])) fallback = timeline[i];
+  }
+  drawScene(g, cur, p, W, H, style, fallback);
   if (style !== "doodle") {
     const next = timeline[cur.idx + 1];
     const fadeDur = 0.18;
     const fadeStart = cur.start + cur.duration - fadeDur;
-    if (next && now > fadeStart) {
+    // Only crossfade when the incoming shot's media is actually decodable — fading to an
+    // unloaded shot is what caused the mid-transition blips.
+    if (next && now > fadeStart && sceneHasMedia(next)) {
       g.globalAlpha = Math.min(1, (now - fadeStart) / fadeDur);
       drawScene(g, next, 0, W, H, style);
       g.globalAlpha = 1;
@@ -778,17 +787,29 @@ function roundRect(g, x, y, w, h, r) {
   g.arcTo(x, y + h, x, y, r); g.arcTo(x, y, x + w, y, r); g.closePath();
 }
 
-function drawScene(g, s, p, W, H, style) {
+// A shot's media is "ready" when a decodable video frame or a loaded image exists.
+function sceneMedia(s) {
+  if (s.vidEl && s.vidEl.readyState >= 2) return { el: s.vidEl, w: s.vidEl.videoWidth, h: s.vidEl.videoHeight, isVid: true };
+  if (s.imgEl && s.imgEl.width) return { el: s.imgEl, w: s.imgEl.width, h: s.imgEl.height, isVid: false };
+  return null;
+}
+export const sceneHasMedia = (s) => !!sceneMedia(s);
+
+// Draw one shot. `fallback` (optional) is another shot whose ready media stands in when this
+// shot has none — footage only, never a text card, so nothing "blips" mid-video.
+function drawScene(g, s, p, W, H, style, fallback) {
   const doodle = style === "doodle";
   g.fillStyle = doodle ? "#fdfdfa" : "#000";
   g.fillRect(0, 0, W, H);
-  const media = s.vidEl && s.vidEl.readyState >= 2 ? { el: s.vidEl, w: s.vidEl.videoWidth, h: s.vidEl.videoHeight } : s.imgEl ? { el: s.imgEl, w: s.imgEl.width, h: s.imgEl.height } : null;
+  let media = sceneMedia(s);
+  let src = s;
+  if (!media && fallback) { media = sceneMedia(fallback); src = fallback; }
   if (media && media.w) {
-    if (doodle || s.vidEl) drawCoverM(g, media, W, H, 1, 0, 0); // hard frames for doodle; real clips play as-is
+    if (doodle || media.isVid) drawCoverM(g, media, W, H, 1, 0, 0); // hard frames for doodle; real clips play as-is
     else {
-      const zoomIn = s.idx % 2 === 0;
+      const zoomIn = src.idx % 2 === 0;
       const scale = zoomIn ? 1 + 0.09 * p : 1.09 - 0.09 * p;
-      const px = (s.idx % 4 < 2 ? -1 : 1) * (p - 0.5) * 0.3;
+      const px = (src.idx % 4 < 2 ? -1 : 1) * (p - 0.5) * 0.3;
       drawCoverM(g, media, W, H, scale, px, 0);
     }
     if (!doodle) {
@@ -796,20 +817,11 @@ function drawScene(g, s, p, W, H, style) {
       grad.addColorStop(0, "rgba(0,0,0,0)"); grad.addColorStop(1, "rgba(0,0,0,.45)");
       g.fillStyle = grad; g.fillRect(0, H * 0.7, W, H * 0.3);
     }
-  } else {
+  } else if (!doodle) {
+    // No footage anywhere: a quiet dark gradient — never a text/section card on screen.
     const grad = g.createLinearGradient(0, 0, W, H);
-    grad.addColorStop(0, "#1a1a26"); grad.addColorStop(1, "#3a1020");
+    grad.addColorStop(0, "#101018"); grad.addColorStop(1, "#1c1016");
     g.fillStyle = grad; g.fillRect(0, 0, W, H);
-    g.fillStyle = "rgba(255,255,255,.85)";
-    g.font = `700 ${Math.round(H * 0.05)}px 'DM Sans', sans-serif`;
-    g.textAlign = "center"; g.fillText(s.section || "", W / 2, H / 2); g.textAlign = "left";
-  }
-  if (s.overlay) {
-    g.font = `800 ${Math.round(H * 0.062)}px 'DM Sans', sans-serif`;
-    const tw = g.measureText(s.overlay).width;
-    g.lineWidth = H * 0.012; g.strokeStyle = "rgba(0,0,0,.85)"; g.lineJoin = "round";
-    g.strokeText(s.overlay, (W - tw) / 2, H * 0.14);
-    g.fillStyle = "#fff"; g.fillText(s.overlay, (W - tw) / 2, H * 0.14);
   }
 }
 
