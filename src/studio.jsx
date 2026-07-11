@@ -75,6 +75,10 @@ const STYLES = [
   { id: "doodle", n: "Stickman Doodle", d: "Hand-drawn frames, hard cuts, no zoom" },
 ];
 
+// Target languages — TTS providers (Gemini, ElevenLabs/MiniMax via AI33) are multilingual, so the
+// script, voiceover, subtitles and SEO all follow the chosen language; image prompts stay English.
+const LANGS = ["English", "Spanish", "Portuguese", "French", "German", "Italian", "Hindi", "Arabic", "Indonesian", "Turkish", "Russian", "Japanese", "Korean", "Vietnamese"];
+
 // One-click channel presets — set format, length and visual style, and steer the script's tone.
 const PRESETS = [
   { id: "top10", n: "Top 10 / listicle", format: "16:9", dur: "8", style: "realasset", tone: "Countdown listicle: clearly numbered entries, a punchy reveal per item, rising anticipation toward #1." },
@@ -132,7 +136,8 @@ function fastSplitShots(script) {
 // frame per line IN ORDER. Small + fast, so batches stream back in near real time.
 const SYS_VISUALS = `You are a storyboard visual director for fast-cut faceless YouTube videos.
 For each numbered narration line you receive, imagine ONE concrete shot that illustrates that beat.
-Return ONLY a JSON array with exactly one object per line, IN THE SAME ORDER, no markdown:
+Return ONLY a JSON array with exactly one object per line, IN THE SAME ORDER, no markdown.
+ALWAYS write "visual" and "broll" in ENGLISH even if the narration is in another language (image and stock search work best in English); "overlay" text should match the narration's language.
 [{"visual":"30-50 word prompt describing ONE concrete frame: subject, setting, composition, lighting, mood. Visual keywords only, no text in image","broll":["2-4 SPECIFIC search queries: use the real proper nouns, names, places, objects or events named in the narration (e.g. 'Colosseum Rome interior', 'Julius Caesar marble bust', 'Apollo 11 launch') — concrete and searchable, NOT generic words like 'success' or 'history'","second more specific query","a broader backup query"],"overlay":"optional on-screen text, max 4 words, or empty string","sourceType":"real when this beat depicts a real person/place/event/object that genuine archival footage would show, otherwise ai"}]`;
 
 export default function Studio({ niche, ctx, clKey, gemKey, gathosKey, gathosVidKey, groqKey, ytKey, pexKey, pixKey, covKey, naraKey, ai33Key, ai33Base, back, addH, updateH, batchRun = false, onBatchDone }) {
@@ -167,6 +172,8 @@ export default function Studio({ niche, ctx, clKey, gemKey, gathosKey, gathosVid
   const [thumbState, setThumbState] = useState({});
   const [tplId, setTplId] = useState(null);
   const [preset, setPreset] = useState("");
+  const [lang, setLang] = useState("English");
+  const [translating, setTranslating] = useState(false);
   const [ytPrivacy, setYtPrivacy] = useState("private");
   const [ytSchedule, setYtSchedule] = useState("");
   const [ytBusy, setYtBusy] = useState(false);
@@ -195,6 +202,7 @@ export default function Studio({ niche, ctx, clKey, gemKey, gathosKey, gathosVid
         setFormat(saved.format || "16:9"); setSeo(saved.seo || null);
         if (saved.tplId) setTplId(saved.tplId);
         if (saved.preset) setPreset(saved.preset);
+        if (saved.lang) setLang(saved.lang);
         if (saved.brief) setBrief(saved.brief);
         if (saved.thumbState) setThumbState(t => ({ ...saved.thumbState, ...t }));
         baseScenes = (saved.scenes || []).map(s => ({ ...s, img: null, video: null }));
@@ -245,7 +253,7 @@ export default function Studio({ niche, ctx, clKey, gemKey, gathosKey, gathosVid
   const persist = (patch = {}) => {
     const strip = arr => arr.map(({ img, video, imgErr, imgLoading, ...rest }) => rest);
     const { thumbs, ...thumbLite } = thumbState;
-    const cur = { script, style, dur, format, seo, brief, tplId, preset, thumbState: thumbLite, scenes: strip(scenes), ...patch };
+    const cur = { script, style, dur, format, seo, brief, tplId, preset, lang, thumbState: thumbLite, scenes: strip(scenes), ...patch };
     if (patch.scenes) cur.scenes = strip(patch.scenes);
     ss(storeKey, cur);
   };
@@ -348,6 +356,7 @@ export default function Studio({ niche, ctx, clKey, gemKey, gathosKey, gathosVid
   // Structure template (from "Learn from a video") + learned preferences
   const tplScriptNote = () => tpl ? `\n\nSTRUCTURE TEMPLATE — replicate this proven video structure exactly:\n${JSON.stringify({ summary: tpl.dna.summary, hook: tpl.dna.hook, phases: tpl.dna.phases, narration: tpl.dna.narration, rules: tpl.dna.replicationRules })}` : "";
   const presetNote = () => { const p = PRESETS.find(x => x.id === preset); return p ? `\n\nFORMAT / STYLE: ${p.tone}` : ""; };
+  const langNote = () => lang && lang !== "English" ? `\n\nLANGUAGE: Write EVERYTHING in ${lang}. Every word of narration must be natural, fluent, native-sounding ${lang} — not a stiff translation. Numbers, names and places stay accurate.` : "";
   const applyPreset = (id) => {
     const p = PRESETS.find(x => x.id === id);
     setPreset(id);
@@ -392,13 +401,26 @@ export default function Studio({ niche, ctx, clKey, gemKey, gathosKey, gathosVid
       const { label: durLabel, words } = durMeta(dur);
       const guide = theBrief ? `\n\nUse this creative brief (built from competitor research) as your guide for angle, facts and structure — follow its sections and cover its key facts:\n${theBrief.slice(0, 8000)}` : "";
       const fmtNote = vertical ? "\nFORMAT: This is a vertical YouTube Short — punchy, no slow build, hook in the first 2 seconds." : "";
-      const r = await claude(SYS_SCRIPT, `Topic: ${ctx.topic}\nNiche: ${niche.name}${niche.desc ? ` — ${niche.desc}` : ""}\nTarget length: ${durLabel} → aim for ≈${words} words, landing comfortably in the MIDDLE of that range. Do NOT exceed the upper bound.${fmtNote}${guide}${presetNote()}${tplScriptNote()}${lessonsNote(niche.id)}`, clKey, { maxTokens: 16000 });
+      const r = await claude(SYS_SCRIPT, `Topic: ${ctx.topic}\nNiche: ${niche.name}${niche.desc ? ` — ${niche.desc}` : ""}\nTarget length: ${durLabel} → aim for ≈${words} words, landing comfortably in the MIDDLE of that range. Do NOT exceed the upper bound.${fmtNote}${guide}${presetNote()}${langNote()}${tplScriptNote()}${lessonsNote(niche.id)}`, clKey, { maxTokens: 16000 });
       const clean = cleanScript(r);
       setScript(clean); persist({ script: clean });
       recordEvent(niche.id, "script_generated", { topic: ctx.topic, words: clean.split(/\s+/).length, template: tpl?.name || null, format });
       setSt(`✅ Script ready (${clean.split(/\s+/).length} words ≈ ${fmtTime(clean.split(/\s+/).length / 2.6)})`);
       setBusy(""); return clean;
     } catch (e) { setSt("⚠ " + e.message); setBusy(""); return ""; }
+  };
+
+  // Translate the current script into the selected language (for repurposing an English video).
+  const translateScript = async () => {
+    if (!script || !clKey || lang === "English") return;
+    setTranslating(true); setSt(`Translating to ${lang}…`);
+    try {
+      const r = await claude(`You are a professional voiceover translator. Translate the following YouTube narration into ${lang}. Keep it natural, spoken, and preserve the meaning, pacing and paragraph breaks. Return ONLY the translated narration — no notes, no original text.`, script, clKey, { maxTokens: 16000 });
+      const clean = cleanScript(r);
+      setScript(clean); persist({ script: clean });
+      setSt(`✅ Translated to ${lang} — re-storyboard to refresh the shots`);
+    } catch (e) { setSt("⚠ " + e.message); }
+    setTranslating(false);
   };
 
   // ---- Stage 2: Storyboard ----
@@ -740,7 +762,7 @@ export default function Studio({ niche, ctx, clKey, gemKey, gathosKey, gathosVid
     const scr = scriptText || script;
     setBusy("seo"); setSt("Building SEO package...");
     try {
-      const raw = await claude(SYS_SEO, `Topic: "${ctx.topic}"\nNiche: ${niche.name}\nFormat: ${vertical ? "YouTube Short" : "long-form video"}\nScript summary (first 800 chars):\n${scr.slice(0, 800)}`, clKey);
+      const raw = await claude(SYS_SEO, `Topic: "${ctx.topic}"\nNiche: ${niche.name}\nFormat: ${vertical ? "YouTube Short" : "long-form video"}${langNote()}\nScript summary (first 800 chars):\n${scr.slice(0, 800)}`, clKey);
       const pkg = { ...parseJson(raw), chapters: vertical ? [] : chapters(sceneList, segList), credits: credits(sceneList) };
       setSeo(pkg); persist({ seo: pkg });
       let hid = ctx.histId;
@@ -893,6 +915,7 @@ export default function Studio({ niche, ctx, clKey, gemKey, gathosKey, gathosVid
           </select></div>
         <div><label className="yt-label">Format</label><select className="yt-sel" value={format} onChange={e => { setFormat(e.target.value); setPreset(""); persist({ format: e.target.value, preset: "" }); }} disabled={disabled}><option value="16:9">16:9 long-form</option><option value="9:16">9:16 Short</option></select></div>
         <div><label className="yt-label">Length</label><select className="yt-sel" value={dur} onChange={e => setDur(e.target.value)} disabled={disabled}><option value="0.7">~40 sec</option><option value="1">~1 min</option><option value="3">~3 min</option><option value="5">~5 min</option><option value="8">6–8 min</option><option value="12">10–12 min</option><option value="15">13–15 min</option></select></div>
+        <div><label className="yt-label">Language</label><select className="yt-sel" value={lang} onChange={e => { setLang(e.target.value); persist({ lang: e.target.value }); }} disabled={disabled}>{LANGS.map(l => <option key={l} value={l}>{l}</option>)}</select></div>
         <div><label className="yt-label">Voice</label>
           <button className="vs-voice-btn" onClick={() => setVoiceModal(true)} disabled={disabled}>
             {voiceSel.name}<span className="vs-voice-prov">{voiceSel.provider}</span>
@@ -936,7 +959,10 @@ export default function Studio({ niche, ctx, clKey, gemKey, gathosKey, gathosVid
         {brief && <p className="yt-hint">The brief above guides this script.</p>}
         <textarea className="yt-input vs-script-area vs-script-read" rows="16" value={script} onChange={e => setScript(e.target.value)} onFocus={e => { focusRef.current = e.target.value; }} onBlur={e => { persist(); if (focusRef.current && focusRef.current !== e.target.value) recordEvent(niche.id, "script_edited", { before: focusRef.current.slice(0, 220), after: e.target.value.slice(0, 220) }); }} placeholder="Hit Write script — or paste your own narration. Clean spoken text, paragraphs between beats."/>
         {script && <div className="vs-row-between"><span className="yt-hint">{script.split(/\s+/).filter(Boolean).length} words ≈ {fmtTime(script.split(/\s+/).filter(Boolean).length / 2.6)} runtime</span>
-          <button className="yt-btn" onClick={() => { genStoryboard(); setStep(1); }} disabled={disabled}>Storyboard it →</button></div>}
+          <div className="yt-btn-row">
+            {lang !== "English" && <button className={`yt-btn-o ${translating ? "yt-btn-ld" : ""}`} onClick={translateScript} disabled={disabled || translating} title={`Translate the current script into ${lang}`}>{translating ? "Translating…" : `Translate → ${lang}`}</button>}
+            <button className="yt-btn" onClick={() => { genStoryboard(); setStep(1); }} disabled={disabled}>Storyboard it →</button>
+          </div></div>}
       </div>
     </>}
 
