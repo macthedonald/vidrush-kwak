@@ -4,6 +4,7 @@ import { AI33_DEFAULT_BASE } from "./ai33";
 import { useReveal, Counter } from "./anim.jsx";
 import { claude } from "./pipeline";
 import { cloudGet, cloudSet, cloudRemove, cloudRemoveMediaPrefix } from "./cloud.js";
+import { getUsage, getRates, USAGE_LABELS } from "./usage.js";
 
 // Heavy pages are code-split — the dashboard shell stays fast.
 const Studio = lazy(() => import("./studio.jsx"));
@@ -443,6 +444,9 @@ function Home({ niches, sn, ytKey, go, goFinder, goSettings, keysReady }) {
   const [chUrl, setChUrl] = useState(""); const [chId, setChId] = useState(""); const [fetching, setFetching] = useState(false); const [fetchErr, setFetchErr] = useState("");
   const [openSeo, setOpenSeo] = useState(null);
   const seoPkgs = niches.flatMap(n=>(n.history||[]).filter(h=>h.seo).map(h=>({nicheName:n.name,...h})));
+  const usage = getUsage(); const rates = getRates();
+  const usedKinds = Object.keys(USAGE_LABELS).filter(k=>usage[k]);
+  const estCost = usedKinds.reduce((s,k)=>s+(usage[k]||0)*(rates[k]||0),0);
   const handleCover = (e) => { const f=e.target.files[0]; if(!f) return; const r=new FileReader(); r.onload=ev=>setCover(ev.target.result); r.readAsDataURL(f); e.target.value=''; };
   const fetchChannel = async () => {
     const url = chUrl.trim(); if(!url) return;
@@ -521,6 +525,14 @@ function Home({ niches, sn, ytKey, go, goFinder, goSettings, keysReady }) {
           <div className="yt-niche-meta"><span>{n.channels?.length||0} channels</span><span>{n.history?.length||0} topics</span></div>
         </div>
       </div>)}</div>}
+
+    {usedKinds.length>0&&<><div className="yt-sec-h" style={{marginTop:36}}><h2>Usage</h2></div>
+      <div className="yt-card">
+        <div className="nv-usage-grid">
+          {usedKinds.map(k=><div key={k} className="nv-usage-cell"><span className="nv-usage-n">{usage[k]}</span><span className="nv-usage-l">{USAGE_LABELS[k]}</span></div>)}
+        </div>
+        <div className="nv-usage-foot"><span className="yt-hint" style={{margin:0}}>Estimated spend to date (rough per-unit estimates — renders are free/local)</span><span className="nv-usage-cost">≈ ${estCost.toFixed(2)}</span></div>
+      </div></>}
 
     {seoPkgs.length>0&&<><div className="yt-sec-h" style={{marginTop:36}}><h2>SEO packages</h2></div>
       <div className="yt-seo-board">{seoPkgs.map(p=><div key={p.id} className="yt-card yt-seo-card">
@@ -895,6 +907,12 @@ button{font-family:var(--font)}
 .yt-btn-big-ld{background:var(--surface2)!important;border-color:var(--border)!important;color:var(--text2)!important}
 .yt-btn-big-suggest{background:var(--text);border-color:var(--text)}
 .yt-btn-big-suggest:hover{background:#000}
+.nv-usage-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:12px}
+.nv-usage-cell{display:flex;flex-direction:column;gap:2px;padding:10px 12px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius3)}
+.nv-usage-n{font-size:22px;font-weight:700;color:var(--text)}
+.nv-usage-l{font-size:12px;color:var(--text3)}
+.nv-usage-foot{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-top:14px;flex-wrap:wrap}
+.nv-usage-cost{font-size:18px;font-weight:700;color:var(--text)}
 .yt-topic-ck{width:16px;height:16px;flex-shrink:0;accent-color:var(--blue);cursor:pointer;margin-top:2px}
 .yt-topic-sel{border-color:var(--blue);box-shadow:0 0 0 1px var(--blue) inset}
 .nv-batch-bar{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);z-index:80;display:flex;align-items:center;gap:12px;background:var(--text);color:var(--bg);padding:10px 16px;border-radius:999px;box-shadow:var(--shadow);font-size:13px;font-weight:500;max-width:92vw}
