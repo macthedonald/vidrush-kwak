@@ -135,7 +135,7 @@ For each numbered narration line you receive, imagine ONE concrete shot that ill
 Return ONLY a JSON array with exactly one object per line, IN THE SAME ORDER, no markdown:
 [{"visual":"30-50 word prompt describing ONE concrete frame: subject, setting, composition, lighting, mood. Visual keywords only, no text in image","broll":["2-4 SPECIFIC search queries: use the real proper nouns, names, places, objects or events named in the narration (e.g. 'Colosseum Rome interior', 'Julius Caesar marble bust', 'Apollo 11 launch') — concrete and searchable, NOT generic words like 'success' or 'history'","second more specific query","a broader backup query"],"overlay":"optional on-screen text, max 4 words, or empty string","sourceType":"real when this beat depicts a real person/place/event/object that genuine archival footage would show, otherwise ai"}]`;
 
-export default function Studio({ niche, ctx, clKey, gemKey, gathosKey, gathosVidKey, groqKey, ytKey, pexKey, pixKey, covKey, naraKey, ai33Key, ai33Base, back, addH, updateH }) {
+export default function Studio({ niche, ctx, clKey, gemKey, gathosKey, gathosVidKey, groqKey, ytKey, pexKey, pixKey, covKey, naraKey, ai33Key, ai33Base, back, addH, updateH, batchRun = false, onBatchDone }) {
   const vidKey = gathosVidKey || gathosKey; // legacy img_live_* keys also work for video
   const storeKey = `vr7-studio-${niche.id}-${ctx.histId || ctx.topic}`;
   const mk = k => `${storeKey}:${k}`;
@@ -853,6 +853,18 @@ export default function Studio({ niche, ctx, clKey, gemKey, gathosKey, gathosVid
     if (!seo && clKey) genSeo(s, arr, segs);
     setAuto(false);
   };
+
+  // Batch mode: when opened as part of a batch, auto-run the full pipeline once, then signal the
+  // queue to advance to the next topic. Skips (and advances) if the required keys are missing.
+  const batchRan = useRef(false);
+  useEffect(() => {
+    if (!batchRun || batchRan.current) return;
+    batchRan.current = true;
+    (async () => {
+      try { if (clKey && gathosKey) await autopilot(); }
+      finally { onBatchDone?.(); }
+    })();
+  }, [batchRun]);
 
   const mediaReady = scenes.filter(s => s.img || s.video).length;
   const disabled = !!busy || auto;
