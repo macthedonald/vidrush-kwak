@@ -13,6 +13,7 @@ import { usePopIn } from "./anim";
 import { idbSet, idbGet, idbDel, idbDelPrefix } from "./store";
 import ThumbLab from "./thumblab";
 import { recordEvent, lessonsNote, reflect } from "./memory";
+import { bumpUsage } from "./usage.js";
 import { cloudGet as ls, cloudSet as ss, cloudPutMedia, cloudMediaUrl, cloudRemoveMedia } from "./cloud.js";
 import { pfetch } from "./net.js";
 import { fetchYouTubeVideo } from "./yt.js";
@@ -404,7 +405,7 @@ export default function Studio({ niche, ctx, clKey, gemKey, gathosKey, gathosVid
       const r = await claude(SYS_SCRIPT, `Topic: ${ctx.topic}\nNiche: ${niche.name}${niche.desc ? ` — ${niche.desc}` : ""}\nTarget length: ${durLabel} → aim for ≈${words} words, landing comfortably in the MIDDLE of that range. Do NOT exceed the upper bound.${fmtNote}${guide}${presetNote()}${langNote()}${tplScriptNote()}${lessonsNote(niche.id)}`, clKey, { maxTokens: 16000 });
       const clean = cleanScript(r);
       setScript(clean); persist({ script: clean });
-      recordEvent(niche.id, "script_generated", { topic: ctx.topic, words: clean.split(/\s+/).length, template: tpl?.name || null, format });
+      bumpUsage("script"); recordEvent(niche.id, "script_generated", { topic: ctx.topic, words: clean.split(/\s+/).length, template: tpl?.name || null, format });
       setSt(`✅ Script ready (${clean.split(/\s+/).length} words ≈ ${fmtTime(clean.split(/\s+/).length / 2.6)})`);
       setBusy(""); return clean;
     } catch (e) { setSt("⚠ " + e.message); setBusy(""); return ""; }
@@ -438,7 +439,7 @@ export default function Studio({ niche, ctx, clKey, gemKey, gathosKey, gathosVid
     }));
     setScenes(base); setAudioSegs([]); persist({ scenes: base });
     idbDelPrefix(mk("img:")); idbDelPrefix(mk("vid:")); clearSegsIdb(); idbDel(mk("video"));
-    recordEvent(niche.id, "storyboard_built", { shots: base.length, template: tpl?.name || null });
+    bumpUsage("storyboard"); recordEvent(niche.id, "storyboard_built", { shots: base.length, template: tpl?.name || null });
     setSt(`✂ Split into ${base.length} shots · est. ${fmtTime(base.reduce((t, s) => t + estDuration(s.narration), 0))} — enriching visuals…`);
     // Enrich in the background: batches stream richer prompts into the scenes as they land.
     // Await it so callers that chain (Autopilot) receive the fully-enriched shots; the UI
@@ -496,7 +497,7 @@ export default function Studio({ niche, ctx, clKey, gemKey, gathosKey, gathosVid
     try {
       const url = await gathosImage(STYLE_WRAP[style](s.visual), gathosKey, { aspect: format });
       setScene(i, { img: url, video: null, imgLoading: false, credit: null });
-      saveMedia(mk(`img:${i}`), url, url); delMedia(mk(`vid:${i}`));
+      saveMedia(mk(`img:${i}`), url, url); delMedia(mk(`vid:${i}`)); bumpUsage("image");
     } catch (e) { setScene(i, { imgErr: e.message, imgLoading: false }); }
   };
   // AI-generated video clip for one shot: animates the existing frame (ti2av) or goes text-to-video.
@@ -517,7 +518,7 @@ export default function Studio({ niche, ctx, clKey, gemKey, gathosKey, gathosVid
       });
       setScene(i, { video: { blobUrl: URL.createObjectURL(blob), thumb: s.img || null }, imgLoading: false });
       saveMedia(mk(`vid:${i}`), { blob, thumb: s.img || null, credit: null }, blob);
-      recordEvent(niche.id, "clip_generated", { shot: i, hadFrame: !!s.img });
+      bumpUsage("clip"); recordEvent(niche.id, "clip_generated", { shot: i, hadFrame: !!s.img });
       setSt(`✅ Shot #${i + 1} clip ready`);
     } catch (e) { setScene(i, { imgErr: e.message, imgLoading: false }); }
   };
@@ -640,7 +641,7 @@ export default function Studio({ niche, ctx, clKey, gemKey, gathosKey, gathosVid
     try {
       const seg = await speak(text);
       setSeg(si, seg);
-      saveMedia(mk(`seg:${si}`), { pcm: seg.pcm, rate: seg.rate, words: seg.words }, packSeg(seg));
+      saveMedia(mk(`seg:${si}`), { pcm: seg.pcm, rate: seg.rate, words: seg.words }, packSeg(seg)); bumpUsage("tts");
       return seg;
     } catch (e) { setSeg(si, { err: e.message }); return null; }
   };
@@ -740,7 +741,7 @@ export default function Studio({ niche, ctx, clKey, gemKey, gathosKey, gathosVid
       }
       setVideo({ url: URL.createObjectURL(out.blob), ext: out.ext, duration: out.duration, size: out.blob.size });
       saveMedia(mk("video"), { blob: out.blob, ext: out.ext, duration: out.duration }, out.blob);
-      recordEvent(niche.id, "video_rendered", { topic: ctx.topic, style, format, res, duration: Math.round(out.duration), music: !!music, template: tpl?.name || null });
+      bumpUsage("render"); recordEvent(niche.id, "video_rendered", { topic: ctx.topic, style, format, res, duration: Math.round(out.duration), music: !!music, template: tpl?.name || null });
       reflect(niche.id, clKey);
       setSt(`✅ Video rendered — ${fmtTime(out.duration)} · ${(out.blob.size / 1048576).toFixed(1)} MB (${out.ext.toUpperCase()})`);
     } catch (e) { setSt(renderCancel.current ? "Render cancelled" : "⚠ " + e.message); }
@@ -831,7 +832,7 @@ export default function Studio({ niche, ctx, clKey, gemKey, gathosKey, gathosVid
       if (scenes.length) { try { const srt = buildSrt(); if (srt.trim()) await uploadCaption({ token, videoId: video.id, srt }); } catch (e) { console.warn("captions:", e.message); } }
       const url = `https://youtu.be/${video.id}`;
       if (ctx.histId && updateH) updateH(niche.id, ctx.histId, { youtubeId: video.id, youtubeUrl: url, youtubePrivacy: ytPrivacy, publishedAt: new Date().toISOString() });
-      recordEvent(niche.id, "video_published", { topic: ctx.topic, videoId: video.id, privacy: ytPrivacy, scheduled: !!publishAt });
+      bumpUsage("publish"); recordEvent(niche.id, "video_published", { topic: ctx.topic, videoId: video.id, privacy: ytPrivacy, scheduled: !!publishAt });
       setYtStatus(`✅ Published: ${url}`);
     } catch (e) { setYtStatus("⚠ " + e.message); }
     setYtBusy(false);
