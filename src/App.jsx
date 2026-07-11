@@ -3,7 +3,7 @@ import { SeoView } from "./seoview.jsx";
 import { AI33_DEFAULT_BASE } from "./ai33";
 import { useReveal, Counter } from "./anim.jsx";
 import { claude } from "./pipeline";
-import { cloudGet, cloudSet, cloudRemove } from "./cloud.js";
+import { cloudGet, cloudSet, cloudRemove, cloudRemoveMediaPrefix } from "./cloud.js";
 
 // Heavy pages are code-split — the dashboard shell stays fast.
 const Studio = lazy(() => import("./studio.jsx"));
@@ -189,6 +189,7 @@ export default function App({ auth = null }) {
   };
 
   const deleteH = (nicheId, histId) => {
+    cloudRemoveMediaPrefix(`vr7-studio-${nicheId}-${histId}:`); // free this topic's cloud media
     setNiches(prev => {
       const n = prev.map(x => {
         if (x.id !== nicheId) return x;
@@ -492,7 +493,7 @@ function Home({ niches, sn, ytKey, go, goFinder, goSettings, keysReady }) {
       <div className="yt-niche-grid">{niches.map(n=><div key={n.id} className="yt-niche-card" onClick={()=>go(n)}>
         {n.cover && <div className="yt-niche-cover-wrap"><img src={n.cover} className="yt-niche-cover" alt=""/></div>}
         <div className="yt-niche-card-body">
-          <div className="yt-niche-top"><h3>{n.name}</h3><button className="yt-x" onClick={e=>{e.stopPropagation();if(confirm("Delete niche?"))sn(niches.filter(x=>x.id!==n.id));}}>✕</button></div>
+          <div className="yt-niche-top"><h3>{n.name}</h3><button className="yt-x" onClick={e=>{e.stopPropagation();if(confirm("Delete niche?")){cloudRemoveMediaPrefix(`vr7-studio-${n.id}-`);sn(niches.filter(x=>x.id!==n.id));}}}>✕</button></div>
           {n.desc&&<p className="yt-niche-desc">{n.desc}</p>}
           <div className="yt-niche-meta"><span>{n.channels?.length||0} channels</span><span>{n.history?.length||0} topics</span></div>
         </div>

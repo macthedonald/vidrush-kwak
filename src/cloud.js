@@ -94,10 +94,11 @@ export function detachBackend() { backend = null; }
 // file storage. mediaUrls maps a media key → a served URL, hydrated on sign-in; mediaBackend
 // uploads new blobs. All best-effort: any failure just falls back to local IndexedDB.
 const mediaUrls = new Map();
+const mediaKeys = new Set(); // every media key we know about (hydrated or uploaded this session)
 let mediaBackend = null;
 
 export function hydrateMediaFromCloud(rows) {
-  for (const { key, url } of rows) mediaUrls.set(key, url);
+  for (const { key, url } of rows) { mediaUrls.set(key, url); mediaKeys.add(key); }
 }
 export function cloudMediaUrl(key) { return mediaUrls.get(key); }
 export function cloudMediaEnabled() { return !!mediaBackend; }
@@ -113,6 +114,7 @@ export function attachMediaBackend(uploadUrlMutation, setMutation, removeMutatio
   };
   mediaBackend = {
     put(key, blob) {
+      mediaKeys.add(key);
       queue.push(async () => {
         const postUrl = await uploadUrlMutation({});
         const res = await fetch(postUrl, { method: "POST", headers: { "Content-Type": blob.type || "application/octet-stream" }, body: blob });
@@ -122,8 +124,14 @@ export function attachMediaBackend(uploadUrlMutation, setMutation, removeMutatio
       });
       pump();
     },
-    remove(key) { removeMutation({ key }).catch(() => {}); mediaUrls.delete(key); },
+    remove(key) { removeMutation({ key }).catch(() => {}); mediaUrls.delete(key); mediaKeys.delete(key); },
   };
+}
+// Delete every stored media file whose key starts with `prefix` (e.g. a topic's frames on delete /
+// re-storyboard) so old cloud files don't linger. No-op offline.
+export function cloudRemoveMediaPrefix(prefix) {
+  if (!mediaBackend) return;
+  for (const key of [...mediaKeys]) if (key.startsWith(prefix)) mediaBackend.remove(key);
 }
 export function detachMediaBackend() { mediaBackend = null; }
 
