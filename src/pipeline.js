@@ -553,13 +553,12 @@ export async function youtubeCC(query, ytKey, limit = 8) {
   })).filter(v => v.videoId);
 }
 
-// Source ONE real asset for a shot. Pools candidates from Wikimedia Commons + Internet Archive
-// (real subject) and any configured stock providers across ALL the shot's search queries, then
-// returns the single best match by relevance — resolving the Archive file lazily for the winner.
-// `queries` may be a string or an array of 2-4 short queries. Set { real:false } for stock-only.
-export async function sourceRealAsset(queries, keys = {}, { real = true } = {}) {
+// Ranked candidate pool for a shot: Wikimedia Commons + Internet Archive (real subject) and any
+// configured stock providers, across ALL the shot's search queries, sorted by term relevance.
+// Archive items come back unresolved (resolve the winner lazily with archiveResolveFile).
+export async function sourceRealAssetCandidates(queries, keys = {}, { real = true, limit = 8 } = {}) {
   const qs = (Array.isArray(queries) ? queries : [queries]).map(q => String(q || "").trim()).filter(Boolean);
-  if (!qs.length) return null;
+  if (!qs.length) return [];
   const q0 = qs[0], q1 = qs[1] || qs[0];
   const qterms = queryTerms(qs.join(" "));
   const jobs = [];
@@ -574,11 +573,72 @@ export async function sourceRealAsset(queries, keys = {}, { real = true } = {}) 
   const settled = await Promise.allSettled(jobs);
   const pool = [];
   for (const s of settled) if (s.status === "fulfilled" && Array.isArray(s.value)) pool.push(...s.value);
-  if (!pool.length) return null;
   pool.forEach(a => { a._score = scoreAsset(qterms, a); });
   pool.sort((a, b) => b._score - a._score);
-  // Walk the top matches; resolve Archive items to a real file, skip any that don't resolve.
-  for (const cand of pool.slice(0, 6)) {
+  return pool.slice(0, limit);
+}
+
+// Fetch a (thumbnail) URL → { mime, data } base64 for a Gemini inline image part.
+async function urlToInline(url) {
+  const r = await pfetch(url);
+  if (!r.ok) throw new Error(`thumb ${r.status}`);
+  const blob = await r.blob();
+  if (!/^image\//.test(blob.type || "")) throw new Error("not an image");
+  const dataUrl = await new Promise((res, rej) => { const fr = new FileReader(); fr.onload = () => res(fr.result); fr.onerror = rej; fr.readAsDataURL(blob); });
+  return { mime: blob.type || "image/jpeg", data: dataUrl.split(",")[1] };
+}
+
+// Vision verification: Gemini looks at the candidates' thumbnails and picks the one that ACTUALLY
+// depicts what the scene needs (and is text/watermark-free). Returns the winning index, or -1 if
+// none is a genuine match. Failures throw — callers fall back to term ranking.
+export async function geminiPickAsset(candidates, intent, key) {
+  if (!key) throw new Error("no Gemini key");
+  const withThumbs = [];
+  await Promise.all(candidates.slice(0, 6).map(async (c, i) => {
+    try { const img = await urlToInline(c.thumb || c.src); withThumbs.push({ i, img, c }); } catch {}
+  }));
+  if (!withThumbs.length) throw new Error("no readable thumbnails");
+  withThumbs.sort((a, b) => a.i - b.i);
+  const parts = [{ text: `You are selecting b-roll for one video scene.\nSCENE NEEDS: ${intent}\n\nBelow are ${withThumbs.length} candidate images, numbered in order. Judge each on:\n1. Does it ACTUALLY depict the subject the scene needs (not vaguely related)?\n2. Is it free of burned-in text, captions, numbers, watermarks, logos and UI?\n3. Is it visually usable (clear subject, decent quality)?\nReturn ONLY JSON: {"best": <0-based number of the single best candidate, or -1 if NONE truly matches>, "reason": "one short sentence"}` }];
+  withThumbs.forEach(({ img }, k) => {
+    parts.push({ text: `Candidate ${k}:` });
+    parts.push({ inline_data: { mime_type: img.mime, data: img.data } });
+  });
+  const body = { contents: [{ parts }], generationConfig: { temperature: 0.1, maxOutputTokens: 200, responseMimeType: "application/json" } };
+  let resp;
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    resp = await fetch(`${GEM_API}/v1beta/models/${GEM_VIDEO_MODEL}:generateContent?key=${key}`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+    });
+    if ((resp.status === 429 || resp.status === 500 || resp.status === 503) && attempt < 3) { await new Promise(r => setTimeout(r, attempt * 2000)); continue; }
+    break;
+  }
+  const d = await resp.json().catch(() => ({}));
+  if (!resp.ok) throw new Error(d.error?.message || `Gemini ${resp.status}`);
+  const text = (d.candidates?.[0]?.content?.parts || []).map(p => p.text || "").join("");
+  const out = parseJson(text);
+  const k = typeof out.best === "number" ? out.best : -1;
+  if (k < 0 || k >= withThumbs.length) return -1;
+  return withThumbs[k].i; // map back to the original candidate index
+}
+
+// Source ONE real asset for a shot. Pools + ranks candidates, then (when a Gemini key is given)
+// vision-verifies the top matches so the pick actually depicts the subject — otherwise falls back
+// to pure term ranking. Archive winners are resolved to a playable file lazily.
+export async function sourceRealAsset(queries, keys = {}, { real = true, gemKey = null, intent = "" } = {}) {
+  const pool = await sourceRealAssetCandidates(queries, keys, { real, limit: 8 });
+  if (!pool.length) return null;
+  let order = pool.map((_, i) => i);
+  if (gemKey) {
+    try {
+      const best = await geminiPickAsset(pool, intent || (Array.isArray(queries) ? queries.join("; ") : String(queries)), gemKey);
+      if (best === -1) return null; // vision says nothing genuinely matches — better no clip than a wrong one
+      order = [best, ...order.filter(i => i !== best)];
+    } catch { /* vision unavailable → keep term ranking */ }
+  }
+  // Walk the ordered matches; resolve Archive items to a real file, skip any that don't resolve.
+  for (const i of order.slice(0, 6)) {
+    const cand = pool[i];
     if (!cand._needsResolve) return cand;
     try { const resolved = await archiveResolveFile(cand); if (resolved) return resolved; } catch {}
   }

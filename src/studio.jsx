@@ -542,8 +542,14 @@ export default function Studio({ niche, ctx, clKey, gemKey, gathosKey, gathosVid
     const queries = (s.broll && s.broll.length) ? s.broll : [s.narration.split(/[.,;:!?]/)[0].split(/\s+/).slice(0, 6).join(" ")];
     setScene(i, { imgErr: null, imgLoading: true });
     try {
-      const asset = await sourceRealAsset(queries, assetKeys, { real: true });
-      if (!asset) { setScene(i, { imgErr: "No matching footage found", imgLoading: false }); return; }
+      // Vision verification (when a Gemini key is set): the pick must actually depict the scene.
+      const intent = `${s.visual || s.narration}`.slice(0, 300);
+      let asset = await sourceRealAsset(queries, assetKeys, { real: true, gemKey, intent });
+      if (!asset) {
+        // Nothing verified — generate the frame instead of forcing a wrong clip.
+        if (gathosKey) { setScene(i, { imgLoading: false }); return genImage(i, list); }
+        setScene(i, { imgErr: "No matching footage found", imgLoading: false }); return;
+      }
       await applyAsset(i, asset);
     } catch (e) { setScene(i, { imgErr: e.message, imgLoading: false }); }
   };
