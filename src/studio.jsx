@@ -75,6 +75,15 @@ const STYLES = [
   { id: "doodle", n: "Stickman Doodle", d: "Hand-drawn frames, hard cuts, no zoom" },
 ];
 
+// One-click channel presets — set format, length and visual style, and steer the script's tone.
+const PRESETS = [
+  { id: "top10", n: "Top 10 / listicle", format: "16:9", dur: "8", style: "realasset", tone: "Countdown listicle: clearly numbered entries, a punchy reveal per item, rising anticipation toward #1." },
+  { id: "doc", n: "Mini-documentary", format: "16:9", dur: "12", style: "realasset", tone: "Documentary narration: authoritative and immersive, an archival-footage feel, slower reveals and vivid scene-setting." },
+  { id: "motivational", n: "Motivational", format: "16:9", dur: "5", style: "cinematic", tone: "Motivational: second person, rising intensity, cinematic imagery, a strong quotable closing call to action." },
+  { id: "explainer", n: "Explainer", format: "16:9", dur: "5", style: "cinematic", tone: "Clear explainer: state the problem, walk through it step by step with concrete examples, end with the payoff." },
+  { id: "short", n: "Short (9:16)", format: "9:16", dur: "0.7", style: "cinematic", tone: "Vertical Short: hook in the first 2 seconds, one single idea, fast cuts, a loop-friendly ending." },
+];
+
 // Length presets → the word target aims at the MIDDLE of each labeled range
 // (not the top), so "10–12 min" lands ~11 min, not 12. Values match the <select>.
 const DUR_META = {
@@ -157,6 +166,7 @@ export default function Studio({ niche, ctx, clKey, gemKey, gathosKey, gathosVid
   const [musicProg, setMusicProg] = useState(-1);
   const [thumbState, setThumbState] = useState({});
   const [tplId, setTplId] = useState(null);
+  const [preset, setPreset] = useState("");
   const [ytPrivacy, setYtPrivacy] = useState("private");
   const [ytSchedule, setYtSchedule] = useState("");
   const [ytBusy, setYtBusy] = useState(false);
@@ -184,6 +194,7 @@ export default function Studio({ niche, ctx, clKey, gemKey, gathosKey, gathosVid
         setScript(saved.script || ""); setStyle(saved.style || "cinematic"); setDur(saved.dur || "5");
         setFormat(saved.format || "16:9"); setSeo(saved.seo || null);
         if (saved.tplId) setTplId(saved.tplId);
+        if (saved.preset) setPreset(saved.preset);
         if (saved.brief) setBrief(saved.brief);
         if (saved.thumbState) setThumbState(t => ({ ...saved.thumbState, ...t }));
         baseScenes = (saved.scenes || []).map(s => ({ ...s, img: null, video: null }));
@@ -234,7 +245,7 @@ export default function Studio({ niche, ctx, clKey, gemKey, gathosKey, gathosVid
   const persist = (patch = {}) => {
     const strip = arr => arr.map(({ img, video, imgErr, imgLoading, ...rest }) => rest);
     const { thumbs, ...thumbLite } = thumbState;
-    const cur = { script, style, dur, format, seo, brief, tplId, thumbState: thumbLite, scenes: strip(scenes), ...patch };
+    const cur = { script, style, dur, format, seo, brief, tplId, preset, thumbState: thumbLite, scenes: strip(scenes), ...patch };
     if (patch.scenes) cur.scenes = strip(patch.scenes);
     ss(storeKey, cur);
   };
@@ -336,6 +347,13 @@ export default function Studio({ niche, ctx, clKey, gemKey, gathosKey, gathosVid
 
   // Structure template (from "Learn from a video") + learned preferences
   const tplScriptNote = () => tpl ? `\n\nSTRUCTURE TEMPLATE — replicate this proven video structure exactly:\n${JSON.stringify({ summary: tpl.dna.summary, hook: tpl.dna.hook, phases: tpl.dna.phases, narration: tpl.dna.narration, rules: tpl.dna.replicationRules })}` : "";
+  const presetNote = () => { const p = PRESETS.find(x => x.id === preset); return p ? `\n\nFORMAT / STYLE: ${p.tone}` : ""; };
+  const applyPreset = (id) => {
+    const p = PRESETS.find(x => x.id === id);
+    setPreset(id);
+    if (p) { setStyle(p.style); setFormat(p.format); setDur(p.dur); persist({ preset: id, style: p.style, format: p.format, dur: p.dur }); }
+    else persist({ preset: id });
+  };
   const tplBoardNote = () => tpl ? `\nSTRUCTURE TEMPLATE — the storyboard must follow this analyzed video structure:\n- Target average shot length: ${tpl.dna.pacing?.avgShotSeconds || tpl.avgShot?.toFixed(1)}s (${tpl.dna.pacing?.notes || ""})\n- Phases in order (map onto the script proportionally): ${JSON.stringify(tpl.dna.phases)}\n- Rules: ${(tpl.dna.replicationRules || []).join(" | ")}\nFor EVERY shot add a "sourceType" field: "real" when the current phase calls for real/archival/documentary footage of the actual subject, otherwise "ai".` : "";
 
   // ---- Creative brief (research-driven; versions avoid repeating used items) ----
@@ -349,7 +367,7 @@ export default function Studio({ niche, ctx, clKey, gemKey, gathosKey, gathosVid
     if (version > 1) extra = `\n\nIMPORTANT: This is VERSION ${version} of this topic. You MUST use COMPLETELY DIFFERENT specific items, examples, facts, and angles. Find obscure, lesser-known, surprising entries. Do NOT repeat the obvious choices.`;
     if (usedItems.length) extra += `\n\nALREADY USED IN PREVIOUS VERSIONS — DO NOT REPEAT ANY OF THESE:\n${usedItems.join(", ")}\n\nYou MUST pick DIFFERENT items that are NOT in this list.`;
     try {
-      const raw = await claude(SYS_BRIEF, `Topic: ${ctx.topic}\nNiche: ${niche.name}\nDuration: ${durMeta(dur).label}\n\nSTRICT LIMIT: Stay under 9,000 characters. Detailed but concise.${extra}${lessonsNote(niche.id)}`, clKey);
+      const raw = await claude(SYS_BRIEF, `Topic: ${ctx.topic}\nNiche: ${niche.name}\nDuration: ${durMeta(dur).label}\n\nSTRICT LIMIT: Stay under 9,000 characters. Detailed but concise.${presetNote()}${extra}${lessonsNote(niche.id)}`, clKey);
       const r = cleanBrief(raw);
       setBrief(r); setBriefOpen(true); persist({ brief: r });
       let hid = ctx.histId;
@@ -374,7 +392,7 @@ export default function Studio({ niche, ctx, clKey, gemKey, gathosKey, gathosVid
       const { label: durLabel, words } = durMeta(dur);
       const guide = theBrief ? `\n\nUse this creative brief (built from competitor research) as your guide for angle, facts and structure — follow its sections and cover its key facts:\n${theBrief.slice(0, 8000)}` : "";
       const fmtNote = vertical ? "\nFORMAT: This is a vertical YouTube Short — punchy, no slow build, hook in the first 2 seconds." : "";
-      const r = await claude(SYS_SCRIPT, `Topic: ${ctx.topic}\nNiche: ${niche.name}${niche.desc ? ` — ${niche.desc}` : ""}\nTarget length: ${durLabel} → aim for ≈${words} words, landing comfortably in the MIDDLE of that range. Do NOT exceed the upper bound.${fmtNote}${guide}${tplScriptNote()}${lessonsNote(niche.id)}`, clKey, { maxTokens: 16000 });
+      const r = await claude(SYS_SCRIPT, `Topic: ${ctx.topic}\nNiche: ${niche.name}${niche.desc ? ` — ${niche.desc}` : ""}\nTarget length: ${durLabel} → aim for ≈${words} words, landing comfortably in the MIDDLE of that range. Do NOT exceed the upper bound.${fmtNote}${guide}${presetNote()}${tplScriptNote()}${lessonsNote(niche.id)}`, clKey, { maxTokens: 16000 });
       const clean = cleanScript(r);
       setScript(clean); persist({ script: clean });
       recordEvent(niche.id, "script_generated", { topic: ctx.topic, words: clean.split(/\s+/).length, template: tpl?.name || null, format });
@@ -856,7 +874,12 @@ export default function Studio({ niche, ctx, clKey, gemKey, gathosKey, gathosVid
             <option value="">No template</option>
             {templates.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
           </select></div>}
-        <div><label className="yt-label">Format</label><select className="yt-sel" value={format} onChange={e => { setFormat(e.target.value); persist({ format: e.target.value }); }} disabled={disabled}><option value="16:9">16:9 long-form</option><option value="9:16">9:16 Short</option></select></div>
+        <div><label className="yt-label">Preset</label>
+          <select className="yt-sel" value={preset} onChange={e => applyPreset(e.target.value)} disabled={disabled}>
+            <option value="">Custom</option>
+            {PRESETS.map(p => <option key={p.id} value={p.id}>{p.n}</option>)}
+          </select></div>
+        <div><label className="yt-label">Format</label><select className="yt-sel" value={format} onChange={e => { setFormat(e.target.value); setPreset(""); persist({ format: e.target.value, preset: "" }); }} disabled={disabled}><option value="16:9">16:9 long-form</option><option value="9:16">9:16 Short</option></select></div>
         <div><label className="yt-label">Length</label><select className="yt-sel" value={dur} onChange={e => setDur(e.target.value)} disabled={disabled}><option value="0.7">~40 sec</option><option value="1">~1 min</option><option value="3">~3 min</option><option value="5">~5 min</option><option value="8">6–8 min</option><option value="12">10–12 min</option><option value="15">13–15 min</option></select></div>
         <div><label className="yt-label">Voice</label>
           <button className="vs-voice-btn" onClick={() => setVoiceModal(true)} disabled={disabled}>
