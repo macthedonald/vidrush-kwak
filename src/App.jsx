@@ -125,6 +125,7 @@ export default function App({ auth = null }) {
   const [ai33Base, setAi33Base] = useState(AI33_DEFAULT_BASE);
   const [niche, setNiche] = useState(null);
   const [studioCtx, setStudioCtx] = useState(null);
+  const [batch, setBatch] = useState(null); // { queue:[{topic,version}], idx } while a batch runs
   const [ok, setOk] = useState(false);
   const [sb, setSb] = useState(true);
 
@@ -183,6 +184,23 @@ export default function App({ auth = null }) {
     setPg(P.STUDIO);
   };
   const openStudioFromHist = (h) => openStudio(h.topic, h.version, h.id, h.prompt, h.thumb);
+  // Batch generation: run the full pipeline for each queued topic, one after another.
+  const startBatch = (topics) => {
+    const queue = (topics || []).map(t => ({ topic: t.title || t.topic || t, version: t.version || 1 })).filter(x => x.topic);
+    if (!queue.length || !niche) return;
+    setBatch({ queue, idx: 0 });
+    openStudio(queue[0].topic, queue[0].version, null, "", "");
+  };
+  const handleBatchDone = () => {
+    setBatch(prev => {
+      if (!prev) return null;
+      const next = prev.idx + 1;
+      if (next >= prev.queue.length) { setTimeout(() => setPg(P.NICHE), 300); return null; }
+      const item = prev.queue[next];
+      setTimeout(() => openStudio(item.topic, item.version, null, "", ""), 400);
+      return { ...prev, idx: next };
+    });
+  };
   const remakeTopic = (h) => {
     const vc = hist.filter(x => x.topic.toLowerCase() === h.topic.toLowerCase()).length;
     openStudio(h.topic, vc + 1, null, "", "");
@@ -258,12 +276,17 @@ export default function App({ auth = null }) {
       <main className="yt-main"><ErrorBoundary><Suspense fallback={<PageLoader/>}>
         {pg===P.HOME && <Home niches={niches} sn={sn} ytKey={ytKey} go={n=>{openNiche(n);setPg(P.NICHE);}} goFinder={()=>setPg(P.FINDER)} goSettings={()=>setPg(P.SETTINGS)} keysReady={!!(ytKey&&clKey&&gathosKey)} />}
         {pg===P.SETTINGS && <SettingsPg niches={niches} keys={{ytKey,clKey,gemKey,gathosKey,gathosVidKey,groqKey,pexKey,pixKey,covKey,naraKey,ai33Key,ai33Base}} setKeys={k=>{setYtKey(k.ytKey);ss("vr6-yt",k.ytKey);setClKey(k.clKey);ss("vr6-cl",k.clKey);setGemKey(k.gemKey);ss("vr6-gem",k.gemKey);setGathosKey(k.gathosKey);ss("vr8-gat",k.gathosKey);setGathosVidKey(k.gathosVidKey);ss("vr8-gatv",k.gathosVidKey);setGroqKey(k.groqKey);ss("vr8-groq",k.groqKey);setPexKey(k.pexKey);ss("vr7-pex",k.pexKey);setPixKey(k.pixKey);ss("vr7-pix",k.pixKey);setCovKey(k.covKey);ss("vr7-cov",k.covKey);setNaraKey(k.naraKey);ss("vr8-nara",k.naraKey);setAi33Key(k.ai33Key);ss("vr7-a33",k.ai33Key);setAi33Base(k.ai33Base);ss("vr7-a33b",k.ai33Base);}} />}
-        {pg===P.NICHE && niche && <NichePg niche={niches.find(x=>x.id===niche.id)||niche} niches={niches} ytKey={ytKey} clKey={clKey} sn={sn} back={()=>{setNiche(null);setPg(P.HOME);}} gen={(t,v,refThumb)=>openStudio(t,v||1,null,"",refThumb)} />}
-        {pg===P.STUDIO && niche && studioCtx && <Studio niche={niche} ctx={studioCtx} clKey={clKey} gemKey={gemKey} gathosKey={gathosKey} gathosVidKey={gathosVidKey} groqKey={groqKey} ytKey={ytKey} pexKey={pexKey} pixKey={pixKey} covKey={covKey} naraKey={naraKey} ai33Key={ai33Key} ai33Base={ai33Base} addH={addH} updateH={updateH} back={()=>setPg(P.NICHE)} />}
+        {pg===P.NICHE && niche && <NichePg niche={niches.find(x=>x.id===niche.id)||niche} niches={niches} ytKey={ytKey} clKey={clKey} sn={sn} back={()=>{setNiche(null);setPg(P.HOME);}} gen={(t,v,refThumb)=>openStudio(t,v||1,null,"",refThumb)} startBatch={startBatch} />}
+        {pg===P.STUDIO && niche && studioCtx && <Studio key={studioCtx.histId || studioCtx.topic} niche={niche} ctx={studioCtx} clKey={clKey} gemKey={gemKey} gathosKey={gathosKey} gathosVidKey={gathosVidKey} groqKey={groqKey} ytKey={ytKey} pexKey={pexKey} pixKey={pixKey} covKey={covKey} naraKey={naraKey} ai33Key={ai33Key} ai33Base={ai33Base} addH={addH} updateH={updateH} back={()=>setPg(P.NICHE)} batchRun={!!batch} onBatchDone={handleBatchDone} />}
         {pg===P.FINDER && <NicheFinder ytKey={ytKey} clKey={clKey} niches={niches} sn={sn} goNiche={n=>{openNiche(n);setPg(P.NICHE);}} />}
         {pg===P.VISION && <Vision gemKey={gemKey} />}
       </Suspense></ErrorBoundary></main>
     </div>
+    {batch && <div className="nv-batch-bar">
+      <span className="nv-batch-spin"/>
+      <span>Batch {Math.min(batch.idx+1,batch.queue.length)} / {batch.queue.length} — auto-generating “{batch.queue[batch.idx]?.topic}”…</span>
+      <button className="yt-btn-o" onClick={()=>setBatch(null)}>Stop batch</button>
+    </div>}
     <style>{CSS}</style>
   </div>);
 }
@@ -510,7 +533,9 @@ function Home({ niches, sn, ytKey, go, goFinder, goSettings, keysReady }) {
   </div>);
 }
 
-function NichePg({ niche, niches, ytKey, clKey, sn, back, gen }) {
+function NichePg({ niche, niches, ytKey, clKey, sn, back, gen, startBatch }) {
+  const [sel, setSel] = useState(new Set());
+  const toggleSel = (title) => setSel(prev => { const n = new Set(prev); n.has(title) ? n.delete(title) : n.add(title); return n; });
   const [ch, setCh] = useState(""); const [topics, setTopics] = useState([]); const [outs, setOuts] = useState([]);
   const [ld, setLd] = useState(false); const [ldRegen, setLdRegen] = useState(false);
   const [st, setSt] = useState(""); const [cust, setCust] = useState(""); const [showO, setShowO] = useState(true);
@@ -686,13 +711,19 @@ function NichePg({ niche, niches, ytKey, clKey, sn, back, gen }) {
     {topics.length>0&&<div className="yt-card">
       <div className="yt-card-h">
         <span className="yt-card-ht">Topics</span>
-        <button className={`yt-btn-regen ${ldRegen?'yt-btn-ld':''}`} onClick={regenerate} disabled={ld||ldRegen}>{ldRegen?"…":"Regenerate"}</button>
+        <div className="yt-btn-row">
+          {sel.size>0 && <button className="yt-btn" onClick={()=>{ startBatch(topics.filter(t=>sel.has(t.title))); setSel(new Set()); }} title="Auto-generate each selected video back to back">Generate {sel.size} video{sel.size>1?"s":""} →</button>}
+          <button className={`yt-btn-regen ${ldRegen?'yt-btn-ld':''}`} onClick={regenerate} disabled={ld||ldRegen}>{ldRegen?"…":"Regenerate"}</button>
+        </div>
       </div>
+      <p className="yt-hint">Tick topics and hit <b>Generate</b> to batch-produce them one after another (script → visuals → voiceover → SEO).</p>
       <div className="yt-topics">{topics.map((t,i)=>{
       const vc=getVersionCount(t.title); const done=vc>0;
       const seo=heuristicScore(t.title);
-      return <div key={i} className={`yt-topic ${done?'yt-topic-done':''}`}>
-        <div className="yt-topic-h"><span className="yt-topic-t">{t.title}</span>
+      return <div key={i} className={`yt-topic ${done?'yt-topic-done':''} ${sel.has(t.title)?'yt-topic-sel':''}`}>
+        <div className="yt-topic-h">
+          <input type="checkbox" className="yt-topic-ck" checked={sel.has(t.title)} onChange={()=>toggleSel(t.title)}/>
+          <span className="yt-topic-t">{t.title}</span>
           <span className="yt-topic-badges">
             <span className="yt-topic-seo" style={{background:seo>=70?"var(--green)":seo>=45?"var(--amber)":"var(--red)"}} title="SEO score — title length, numbers, power words, and overlap with what's ranking in this niche">SEO {seo}</span>
             {done&&<span className="yt-badge-used">USED ×{vc}</span>}
@@ -864,6 +895,11 @@ button{font-family:var(--font)}
 .yt-btn-big-ld{background:var(--surface2)!important;border-color:var(--border)!important;color:var(--text2)!important}
 .yt-btn-big-suggest{background:var(--text);border-color:var(--text)}
 .yt-btn-big-suggest:hover{background:#000}
+.yt-topic-ck{width:16px;height:16px;flex-shrink:0;accent-color:var(--blue);cursor:pointer;margin-top:2px}
+.yt-topic-sel{border-color:var(--blue);box-shadow:0 0 0 1px var(--blue) inset}
+.nv-batch-bar{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);z-index:80;display:flex;align-items:center;gap:12px;background:var(--text);color:var(--bg);padding:10px 16px;border-radius:999px;box-shadow:var(--shadow);font-size:13px;font-weight:500;max-width:92vw}
+.nv-batch-bar .yt-btn-o{background:transparent;border-color:rgba(255,255,255,.4);color:var(--bg);padding:4px 12px}
+.nv-batch-spin{width:14px;height:14px;border:2px solid rgba(255,255,255,.35);border-top-color:var(--bg);border-radius:50%;animation:vSpin .7s linear infinite;flex-shrink:0}
 .yt-btn-use{background:var(--bg);border:1px solid var(--border2);border-radius:var(--radius3);padding:5px 13px;color:var(--text);font-size:12.5px;font-weight:500;cursor:pointer;transition:all .15s}
 .yt-btn-use:hover{border-color:var(--blue);color:var(--blue)}
 .yt-btn-use-sm{background:var(--bg);border:1px solid var(--border2);border-radius:var(--radius3);padding:4px 11px;color:var(--text);font-size:12px;font-weight:500;cursor:pointer}
