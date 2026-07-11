@@ -63,6 +63,19 @@ async function unpackSeg(blob) {
   return { pcm, rate: meta.rate, words: meta.words || null };
 }
 
+// Run async jobs over items with at most `limit` in flight — the concurrency primitive for
+// batch asset gathering (everything launches at once, throttled per provider).
+async function runPool(items, limit, fn) {
+  const queue = [...items.entries()];
+  const workers = Array.from({ length: Math.min(limit, queue.length) }, async () => {
+    while (queue.length) {
+      const [idx, item] = queue.shift();
+      try { await fn(item, idx); } catch {}
+    }
+  });
+  await Promise.all(workers);
+}
+
 // SRT timestamp: HH:MM:SS,mmm
 const srtTime = (s) => {
   const ms = Math.max(0, Math.round(s * 1000));
@@ -135,12 +148,15 @@ function fastSplitShots(script) {
 
 // Visual-only director prompt: given numbered narration lines, return one concrete
 // frame per line IN ORDER. Small + fast, so batches stream back in near real time.
-const SYS_VISUALS = `You are a storyboard visual director for fast-cut faceless YouTube videos.
-For each numbered narration line you receive, imagine ONE concrete shot that illustrates that beat.
-Return ONLY a JSON array with exactly one object per line, IN THE SAME ORDER, no markdown.
-ALWAYS write "visual" and "broll" in ENGLISH even if the narration is in another language (image and stock search work best in English).
-The frames must be completely text-free: never describe signs, titles, numbers, captions or any readable writing in "visual".
-[{"visual":"30-50 word prompt describing ONE concrete frame: subject, setting, composition, lighting, mood. Visual keywords only, absolutely no text in image","broll":["2-4 SPECIFIC search queries: use the real proper nouns, names, places, objects or events named in the narration (e.g. 'Colosseum Rome interior', 'Julius Caesar marble bust', 'Apollo 11 launch') — concrete and searchable, NOT generic words like 'success' or 'history'","second more specific query","a broader backup query"],"sourceType":"real when this beat depicts a real person/place/event/object that genuine archival footage would show, otherwise ai"}]`;
+const SYS_BEATS = `You are an editor + storyboard director for faceless YouTube videos. You receive one passage of narration. Cut it into SHOTS beat by beat — one story beat per shot, sometimes several consecutive shots for one big beat.
+
+CUTTING RULES:
+- Copy the narration VERBATIM across the shots, in order, covering EVERY word — never skip, reword or summarize.
+- Cut at natural clause/sentence boundaries where the idea turns.
+- Let the CONTENT drive shot length: punchy hooks, reveals and rapid lists → short fast cuts (4-9 words); explanation or scene-setting → normal (10-16 words); a dramatic moment to sit in → one held wide (17-26 words). Vary the rhythm; never exceed 26 words per shot.
+
+Return ONLY a JSON array, no markdown. ALWAYS write "visual" and "broll" in ENGLISH even if the narration is in another language. Frames must be completely text-free: never describe signs, titles, numbers, captions or readable writing.
+[{"narration":"the exact verbatim words for this shot","visual":"30-50 word prompt describing ONE concrete frame: subject, setting, composition, lighting, mood. Visual keywords only, absolutely no text in image","broll":["2-4 SPECIFIC search queries using the real proper nouns/places/objects named in the narration (e.g. 'Colosseum Rome interior', 'Apollo 11 launch') — concrete and searchable, NOT generic words","second more specific query","a broader backup query"],"sourceType":"real when this beat depicts a real person/place/event/object that genuine archival footage would show, otherwise ai"}]`;
 
 export default function Studio({ niche, ctx, clKey, gemKey, gathosKey, gathosVidKey, groqKey, ytKey, pexKey, pixKey, covKey, naraKey, ai33Key, ai33Base, back, addH, updateH, batchRun = false, onBatchDone }) {
   const vidKey = gathosVidKey || gathosKey; // legacy img_live_* keys also work for video
@@ -189,6 +205,8 @@ export default function Studio({ niche, ctx, clKey, gemKey, gathosKey, gathosVid
   const panelRef = usePopIn([step]);
   const cancelRef = useRef(false);
   const boardGenRef = useRef(0); // bumped each storyboard build so stale enrichment is ignored
+  const scenesRef = useRef([]);  // always-fresh scenes for async flows that outlive a render closure
+  useEffect(() => { scenesRef.current = scenes; }, [scenes]);
   const vertical = format === "9:16";
   const assetKeys = { coverr: covKey, pixabay: pixKey, pexels: pexKey, nara: naraKey };
 
@@ -426,68 +444,67 @@ export default function Studio({ niche, ctx, clKey, gemKey, gathosKey, gathosVid
   };
 
   // ---- Stage 2: Storyboard ----
-  // Split instantly (deterministic, <1ms) so shots appear right away, then enrich the
-  // visual prompts with AI in small batches that stream back into the scenes.
+  // Instant deterministic split (paints immediately), then an AI BEAT pass per paragraph
+  // streams in: content-driven cuts (fast 4-9w hooks, held 17-26w wides), verified verbatim,
+  // replacing that paragraph's provisional shots. Paragraph = voiceover section.
   const genStoryboard = async (scriptText) => {
     const src = scriptText || script;
     if (!src) { setSt("⚠ Generate the script first"); return []; }
     const gen = ++boardGenRef.current;
     cancelRef.current = false;
     const defType = style === "realasset" ? "real" : "ai";
-    const base = fastSplitShots(src).map(s => ({
-      section: s.section, narration: s.narration, visual: s.narration, broll: [], overlay: "",
-      sourceType: defType, img: null, video: null, credit: null,
-    }));
+    const mkShot = (narration, pi) => ({ section: `Part ${pi + 1}`, narration, visual: narration, broll: [], overlay: "", sourceType: defType, img: null, video: null, credit: null });
+    const paras = src.split(/\n\s*\n+/).map(p => p.trim()).filter(Boolean);
+    const provisional = paras.map((p, pi) => fastSplitShots(p).map(s => mkShot(s.narration, pi)));
+    const base = provisional.flat();
     setScenes(base); setAudioSegs([]); persist({ scenes: base });
     idbDelPrefix(mk("img:")); idbDelPrefix(mk("vid:")); clearSegsIdb(); idbDel(mk("video"));
     bumpUsage("storyboard"); recordEvent(niche.id, "storyboard_built", { shots: base.length, template: tpl?.name || null });
-    setSt(`✂ Split into ${base.length} shots · est. ${fmtTime(base.reduce((t, s) => t + estDuration(s.narration), 0))} — enriching visuals…`);
-    // Enrich in the background: batches stream richer prompts into the scenes as they land.
-    // Await it so callers that chain (Autopilot) receive the fully-enriched shots; the UI
-    // buttons don't await, so they still show the split instantly.
-    return await enrichVisuals(base, gen);
+    setSt(`✂ Split into ${base.length} shots — cutting beat by beat…`);
+    return await beatCut(paras, provisional, gen, defType, mkShot);
   };
 
-  // Fill each shot's visual/broll/overlay via AI, batched and streamed into the scenes.
-  // Returns the fully-enriched array (defaults kept for any batch that fails).
-  const enrichVisuals = async (shots, gen) => {
+  // AI beat pass. Each paragraph is cut independently (pool of 3) and results assemble in a
+  // deterministic order regardless of completion order; a paragraph whose cut fails verification
+  // keeps its provisional shots, so the board is never broken.
+  const beatCut = async (paras, provisional, gen, defType, mkShot) => {
     const fmtNote = vertical ? "\nFORMAT: vertical 9:16 Shorts — every visual prompt must describe a VERTICAL frame (portrait composition, subject centered)." : "";
-    const result = shots.map(s => ({ ...s }));
-    const B = 10;
-    const batches = [];
-    for (let i = 0; i < shots.length; i += B) batches.push([i, shots.slice(i, i + B)]);
+    const wcOf = (t) => t.split(/\s+/).filter(Boolean).length;
+    const beat = {}; // pi → beat-cut shots
+    const assemble = () => paras.flatMap((_, pi) => beat[pi] || provisional[pi]);
     let done = 0;
     setBusy("storyboard");
-    const runBatch = async ([offset, group]) => {
-      const numbered = group.map((s, j) => `${j + 1}. ${s.narration}`).join("\n");
+    await runPool(paras.map((p, pi) => [p, pi]), 3, async ([para, pi]) => {
+      if (cancelRef.current || boardGenRef.current !== gen) return;
       try {
-        const raw = await claude(SYS_VISUALS, `NICHE: ${niche.name}\nVISUAL STYLE: ${style}${fmtNote}${tplBoardNote()}\n\nNARRATION LINES:\n${numbered}`, clKey, { maxTokens: 4000 });
-        const vis = parseJson(raw);
-        group.forEach((_, j) => {
-          const v = vis[j]; const idx = offset + j;
-          if (v && result[idx]) result[idx] = { ...result[idx], visual: v.visual || result[idx].visual, broll: v.broll || [], overlay: "", sourceType: v.sourceType === "real" ? "real" : (style === "realasset" ? "real" : "ai") };
-        });
-        if (boardGenRef.current !== gen) return; // a newer build started — drop stale UI updates
-        setScenes(prev => {
-          const n = [...prev];
-          group.forEach((_, j) => { const idx = offset + j; if (n[idx] && result[idx]) n[idx] = result[idx]; });
-          persist({ scenes: n });
-          return n;
-        });
-      } catch { /* keep the instant narration-based defaults for this batch */ }
-      done += group.length;
-      if (boardGenRef.current === gen) setSt(`Enriching visuals… ${Math.min(done, shots.length)}/${shots.length} shots`);
-    };
-    // up to 3 batches in flight at once — fast without hammering rate limits
-    for (let i = 0; i < batches.length; i += 3) {
-      if (cancelRef.current || boardGenRef.current !== gen) break;
-      await Promise.all(batches.slice(i, i + 3).map(runBatch));
-    }
+        const raw = await claude(SYS_BEATS, `NICHE: ${niche.name}\nVISUAL STYLE: ${style}${fmtNote}${tplBoardNote()}\n\nNARRATION PASSAGE:\n${para}`, clKey, { maxTokens: 6000 });
+        const cut = parseJson(raw).filter(b => b && (b.narration || "").trim());
+        // Verify: verbatim coverage (±12% words), sane shot sizes — otherwise keep provisional.
+        const joined = cut.map(b => b.narration).join(" ");
+        const ok = cut.length >= 1 && cut.every(b => wcOf(b.narration) <= 30)
+          && Math.abs(wcOf(joined) - wcOf(para)) <= Math.max(3, wcOf(para) * 0.12);
+        if (ok) {
+          beat[pi] = cut.map(b => ({
+            ...mkShot(b.narration.trim(), pi),
+            visual: b.visual || b.narration.trim(),
+            broll: Array.isArray(b.broll) ? b.broll : [],
+            sourceType: b.sourceType === "real" ? "real" : defType,
+          }));
+        }
+      } catch { /* provisional shots stay for this paragraph */ }
+      done++;
+      if (boardGenRef.current === gen && !cancelRef.current) {
+        const n = assemble();
+        setScenes(n); persist({ scenes: n });
+        setSt(`Beat-cutting… ${done}/${paras.length} passages`);
+      }
+    });
+    const out = assemble();
     if (boardGenRef.current === gen) {
       setBusy("");
-      setSt(`✅ ${shots.length} shots ready · est. runtime ${fmtTime(shots.reduce((t, s) => t + estDuration(s.narration), 0))}`);
+      setSt(`✅ ${out.length} shots, beat by beat · est. runtime ${fmtTime(out.reduce((t, s) => t + estDuration(s.narration), 0))}`);
     }
-    return result;
+    return out;
   };
 
   // ---- Stage 3: Visuals (Gathos) ----
@@ -585,20 +602,25 @@ export default function Studio({ niche, ctx, clKey, gemKey, gathosKey, gathosVid
       }
     } catch (e) { setScene(i, { imgErr: e.message, imgLoading: false }); }
   };
+  // Batch asset gathering: EVERY shot launches at once, split into two concurrent lanes —
+  // real-footage sourcing (network + vision verify) and Gathos generation — each throttled
+  // to its provider's comfortable concurrency. Progress streams in as shots complete.
   const genAllVisuals = async (list) => {
     const arr = list || scenes;
     setBusy("images");
-    const CONC = 5; // Gathos handles ~5 concurrent jobs; 429s are retried inside gathosImage
-    const hasStock = covKey || pixKey || pexKey || naraKey;
-    for (let i = 0; i < arr.length; i += CONC) {
-      if (cancelRef.current) break;
-      setSt(`${style === "realasset" ? "Sourcing" : "Generating"} shots ${i + 1}-${Math.min(i + CONC, arr.length)} of ${arr.length}...`);
-      await Promise.all(Array.from({ length: CONC }, (_, k) => {
-        if (i + k >= arr.length) return null;
-        const wantReal = style === "realasset" || (arr[i + k].sourceType === "real" && hasStock);
-        return wantReal ? sourceScene(i + k, arr) : genImage(i + k, arr);
-      }));
-    }
+    // "real" shots always try sourcing first — Wikimedia/Archive need no key, and sourceScene
+    // falls through to Gathos generation when nothing verifies.
+    const wantReal = (s) => style === "realasset" || s.sourceType === "real";
+    const realIdx = [], aiIdx = [];
+    arr.forEach((s, i) => { if (s.img || s.video) return; (wantReal(s) ? realIdx : aiIdx).push(i); });
+    const total = realIdx.length + aiIdx.length;
+    let done = 0;
+    const tick = () => { done++; if (!cancelRef.current) setSt(`Visuals ${done}/${total} — sourcing & generating all shots at once…`); };
+    if (total) setSt(`Visuals 0/${total} — sourcing & generating all shots at once…`);
+    await Promise.all([
+      runPool(realIdx, 4, async (i) => { if (cancelRef.current) return; await sourceScene(i, arr); tick(); }),
+      runPool(aiIdx, 6, async (i) => { if (cancelRef.current) return; await genImage(i, arr); tick(); }),
+    ]);
     setSt("✅ Visuals ready"); setBusy("");
   };
   const openSourcePicker = async (i, tab) => {
@@ -657,12 +679,16 @@ export default function Studio({ niche, ctx, clKey, gemKey, gathosKey, gathosVid
     const secs = computeSections(arr);
     const out = [];
     setBusy("tts");
-    for (let si = 0; si < secs.length; si++) {
-      if (cancelRef.current) break;
-      if (audioSegs[si]?.pcm) { out[si] = audioSegs[si]; continue; }
-      setSt(`Voicing section ${si + 1}/${secs.length} — "${secs[si].name}" (${voiceSel.name})...`);
+    const pending = [];
+    secs.forEach((_, si) => { if (audioSegs[si]?.pcm) out[si] = audioSegs[si]; else pending.push(si); });
+    let done = 0;
+    // All sections voice concurrently (TTS providers queue server-side); 3 in flight is safe.
+    await runPool(pending, 3, async (si) => {
+      if (cancelRef.current) return;
       out[si] = await ttsSection(si, arr);
-    }
+      done++;
+      if (!cancelRef.current) setSt(`Voiceover ${done}/${pending.length} sections (${voiceSel.name})…`);
+    });
     setSt("✅ Voiceover complete"); setBusy("");
     return out;
   };
@@ -867,7 +893,7 @@ export default function Studio({ niche, ctx, clKey, gemKey, gathosKey, gathosVid
     setPerfBusy(false);
   };
 
-  // ---- Autopilot ----
+  // ---- Autopilot: script → storyboard, then visuals ∥ voiceover ∥ SEO all at once ----
   const autopilot = async () => {
     cancelRef.current = false; setAuto(true);
     let s = script;
@@ -876,11 +902,25 @@ export default function Studio({ niche, ctx, clKey, gemKey, gathosKey, gathosVid
     setStep(1);
     const arr = scenes.length ? scenes : await genStoryboard(s);
     if (!arr.length || cancelRef.current) { setAuto(false); return; }
-    setStep(2); await genAllVisuals(arr);
-    if (cancelRef.current) { setAuto(false); return; }
-    setStep(3); const segs = await ttsAll(arr);
+    // Independent stages run concurrently — assets, voiceover and SEO all in flight together.
+    setStep(2);
+    const [, segs] = await Promise.all([
+      genAllVisuals(arr),
+      ttsAll(arr),
+      (!seo && clKey) ? genSeo(s, arr, []).catch(() => {}) : Promise.resolve(),
+    ]);
+    // SEO ran before voiceover/sourcing finished — refresh chapter timing + footage credits now.
+    if (!cancelRef.current && !vertical) {
+      const fresh = scenesRef.current.length ? scenesRef.current : arr;
+      setSeo(prev => {
+        if (!prev) return prev;
+        const pkg = { ...prev, chapters: chapters(fresh, segs || []), credits: credits(fresh) };
+        persist({ seo: pkg });
+        if (ctx.histId && updateH) updateH(niche.id, ctx.histId, { seo: pkg });
+        return pkg;
+      });
+    }
     if (!cancelRef.current) { setStep(4); setSt("✅ Autopilot done — review, then hit Render"); }
-    if (!seo && clKey) genSeo(s, arr, segs);
     setAuto(false);
   };
 
@@ -976,7 +1016,7 @@ export default function Studio({ niche, ctx, clKey, gemKey, gathosKey, gathosVid
 
     {/* STEP 2 — STORYBOARD */}
     {step === 1 && <div className="yt-card">
-      <div className="yt-card-h"><span className="yt-card-ht">Storyboard — {scenes.length} shots · 3-5s each · {fmtTime(totalRuntime())}</span>
+      <div className="yt-card-h"><span className="yt-card-ht">Storyboard — {scenes.length} shots · beat-cut · {fmtTime(totalRuntime())}</span>
         <button className={`yt-btn ${busy === "storyboard" ? "yt-btn-ld" : ""}`} onClick={() => genStoryboard()} disabled={disabled || !script}>{busy === "storyboard" ? "Directing…" : scenes.length ? "Re-storyboard" : "Build storyboard"}</button>
       </div>
       {!script && <p className="yt-hint">Write the script first (step 1).</p>}
@@ -985,7 +1025,7 @@ export default function Studio({ niche, ctx, clKey, gemKey, gathosKey, gathosVid
           <button className="vs-move" title="Move up" disabled={i === 0} onClick={() => moveScene(i, -1)}>↑</button>
           <button className="vs-move" title="Move down" disabled={i === scenes.length - 1} onClick={() => moveScene(i, 1)}>↓</button>
           <button className="yt-x" onClick={() => { const n = scenes.filter((_, j) => j !== i); setScenes(n); setAudioSegs([]); clearSegsIdb(); idbDelPrefix(mk("img:")); idbDelPrefix(mk("vid:")); persist({ scenes: n }); }}>✕</button></div>
-        <label className="yt-label">Narration (8-14 words)</label>
+        <label className="yt-label">Narration</label>
         <textarea className="yt-input vs-scene-area" rows="1" value={s.narration} onChange={e => setScene(i, { narration: e.target.value })} onFocus={e => { focusRef.current = e.target.value; }} onBlur={e => { persist(); if (focusRef.current && focusRef.current !== e.target.value) recordEvent(niche.id, "narration_edited", { before: focusRef.current, after: e.target.value }); }}/>
         <label className="yt-label">Visual prompt</label>
         <textarea className="yt-input vs-scene-area" rows="2" value={s.visual} onChange={e => setScene(i, { visual: e.target.value, img: null })} onBlur={() => persist()}/>
