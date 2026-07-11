@@ -123,7 +123,7 @@ The SEO step has a **Publish to YouTube** card: sign in with Google (browser OAu
 Setup (one time) in **Google Cloud Console**:
 1. Enable **YouTube Data API v3** and **YouTube Analytics API**.
 2. Create an **OAuth 2.0 Client ID** (Web application). Add your origins to **Authorized JavaScript origins** — e.g. `https://kakkao.vercel.app` and `http://localhost:5173`.
-3. On the **OAuth consent screen**, add the `youtube.upload`, `youtube`, and `yt-analytics.readonly` scopes; while the app is in *testing*, add your Google account as a **test user**.
+3. On the **OAuth consent screen**, add the `youtube.upload`, `youtube`, `youtube.force-ssl` (for captions), and `yt-analytics.readonly` scopes; while the app is in *testing*, add your Google account as a **test user**.
 4. Put the Client ID in Vercel as `VITE_GOOGLE_CLIENT_ID` (a sensible default ships in the code; the env var overrides it).
 
 ## Notes
