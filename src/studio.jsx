@@ -138,8 +138,9 @@ function fastSplitShots(script) {
 const SYS_VISUALS = `You are a storyboard visual director for fast-cut faceless YouTube videos.
 For each numbered narration line you receive, imagine ONE concrete shot that illustrates that beat.
 Return ONLY a JSON array with exactly one object per line, IN THE SAME ORDER, no markdown.
-ALWAYS write "visual" and "broll" in ENGLISH even if the narration is in another language (image and stock search work best in English); "overlay" text should match the narration's language.
-[{"visual":"30-50 word prompt describing ONE concrete frame: subject, setting, composition, lighting, mood. Visual keywords only, no text in image","broll":["2-4 SPECIFIC search queries: use the real proper nouns, names, places, objects or events named in the narration (e.g. 'Colosseum Rome interior', 'Julius Caesar marble bust', 'Apollo 11 launch') — concrete and searchable, NOT generic words like 'success' or 'history'","second more specific query","a broader backup query"],"overlay":"optional on-screen text, max 4 words, or empty string","sourceType":"real when this beat depicts a real person/place/event/object that genuine archival footage would show, otherwise ai"}]`;
+ALWAYS write "visual" and "broll" in ENGLISH even if the narration is in another language (image and stock search work best in English).
+The frames must be completely text-free: never describe signs, titles, numbers, captions or any readable writing in "visual".
+[{"visual":"30-50 word prompt describing ONE concrete frame: subject, setting, composition, lighting, mood. Visual keywords only, absolutely no text in image","broll":["2-4 SPECIFIC search queries: use the real proper nouns, names, places, objects or events named in the narration (e.g. 'Colosseum Rome interior', 'Julius Caesar marble bust', 'Apollo 11 launch') — concrete and searchable, NOT generic words like 'success' or 'history'","second more specific query","a broader backup query"],"sourceType":"real when this beat depicts a real person/place/event/object that genuine archival footage would show, otherwise ai"}]`;
 
 export default function Studio({ niche, ctx, clKey, gemKey, gathosKey, gathosVidKey, groqKey, ytKey, pexKey, pixKey, covKey, naraKey, ai33Key, ai33Base, back, addH, updateH, batchRun = false, onBatchDone }) {
   const vidKey = gathosVidKey || gathosKey; // legacy img_live_* keys also work for video
@@ -464,7 +465,7 @@ export default function Studio({ niche, ctx, clKey, gemKey, gathosKey, gathosVid
         const vis = parseJson(raw);
         group.forEach((_, j) => {
           const v = vis[j]; const idx = offset + j;
-          if (v && result[idx]) result[idx] = { ...result[idx], visual: v.visual || result[idx].visual, broll: v.broll || [], overlay: v.overlay || "", sourceType: v.sourceType === "real" ? "real" : (style === "realasset" ? "real" : "ai") };
+          if (v && result[idx]) result[idx] = { ...result[idx], visual: v.visual || result[idx].visual, broll: v.broll || [], overlay: "", sourceType: v.sourceType === "real" ? "real" : (style === "realasset" ? "real" : "ai") };
         });
         if (boardGenRef.current !== gen) return; // a newer build started — drop stale UI updates
         setScenes(prev => {
