@@ -1,0 +1,55 @@
+name: Deploy render worker (Fly.io)
+
+# Deploys worker/ to Fly.io. Runs on changes to the worker or the shared engine it
+# vendors, and can be triggered manually.
+#
+# Setup (one-time):
+#   1. Repo secret  FLY_API_TOKEN   — from `fly tokens create org` (an ORG token so CI can
+#                                      create the app; a per-app deploy token cannot create).
+#   2. Repo variable FLY_APP        — your globally-unique Fly app name (Fly app names are
+#                                      unique across ALL of Fly). Defaults to "vidrush-render"
+#                                      if unset; override it if that name is taken.
+on:
+  push:
+    branches: [main, claude/storyboarding-video-pipeline-6xl0pm]
+    paths:
+      - 'worker/**'
+      - 'app-live/lib/engine/**'
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    name: fly deploy
+    runs-on: ubuntu-latest
+    concurrency: deploy-render-worker
+    env:
+      FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+      FLY_APP: ${{ vars.FLY_APP || 'vidrush-render' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      # Refresh the vendored engine (render/voice/music) from app-live before shipping.
+      - name: Sync engine
+        working-directory: worker
+        run: npm run sync:engine
+
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+
+      # Create the app if it doesn't exist yet (needs an org-scoped FLY_API_TOKEN).
+      - name: Ensure app exists
+        run: |
+          if ! flyctl status --app "$FLY_APP" >/dev/null 2>&1; then
+            echo "App $FLY_APP not found — creating it."
+            flyctl apps create "$FLY_APP" || {
+              echo "::error::Could not create Fly app '$FLY_APP'. The name may be taken (Fly app names are globally unique) — set a different FLY_APP repo variable — or your FLY_API_TOKEN may be a per-app deploy token that can't create apps (use an org token: fly tokens create org)."
+              exit 1
+            }
+          fi
+
+      - name: Deploy
+        working-directory: worker
+        run: flyctl deploy --remote-only --config fly.toml --app "$FLY_APP"

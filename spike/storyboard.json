@@ -1,0 +1,82 @@
+{
+  "topic": "The city that vanished overnight",
+  "format": "16:9",
+  "width": 1280,
+  "height": 720,
+  "fps": 30,
+  "brand": { "channel": "VidRush Test", "accent": "#ff2d55" },
+  "shots": [
+    {
+      "narration": "Ever wondered why some ancient cities simply vanished?",
+      "start": 0.0,
+      "duration": 3.2,
+      "asset": "frame1.png",
+      "kind": "photo",
+      "words": [
+        { "word": "Ever", "start": 0.05, "end": 0.32 },
+        { "word": "wondered", "start": 0.32, "end": 0.78 },
+        { "word": "why", "start": 0.78, "end": 1.02 },
+        { "word": "some", "start": 1.02, "end": 1.28 },
+        { "word": "ancient", "start": 1.28, "end": 1.72 },
+        { "word": "cities", "start": 1.72, "end": 2.18 },
+        { "word": "simply", "start": 2.18, "end": 2.6 },
+        { "word": "vanished?", "start": 2.6, "end": 3.1 }
+      ]
+    },
+    {
+      "narration": "The answer changes everything we thought we knew.",
+      "start": 3.2,
+      "duration": 3.0,
+      "asset": "clip1.mp4",
+      "kind": "video",
+      "words": [
+        { "word": "The", "start": 3.25, "end": 3.45 },
+        { "word": "answer", "start": 3.45, "end": 3.9 },
+        { "word": "changes", "start": 3.9, "end": 4.38 },
+        { "word": "everything", "start": 4.38, "end": 4.95 },
+        { "word": "we", "start": 4.95, "end": 5.12 },
+        { "word": "thought", "start": 5.12, "end": 5.5 },
+        { "word": "we", "start": 5.5, "end": 5.65 },
+        { "word": "knew.", "start": 5.65, "end": 6.1 }
+      ]
+    },
+    {
+      "narration": "Three thousand years ago a thriving metropolis stood here, home to fifty thousand people.",
+      "start": 6.2,
+      "duration": 5.6,
+      "asset": "frame2.png",
+      "kind": "photo",
+      "words": [
+        { "word": "Three", "start": 6.25, "end": 6.55 },
+        { "word": "thousand", "start": 6.55, "end": 7.0 },
+        { "word": "years", "start": 7.0, "end": 7.35 },
+        { "word": "ago", "start": 7.35, "end": 7.7 },
+        { "word": "a", "start": 7.7, "end": 7.8 },
+        { "word": "thriving", "start": 7.8, "end": 8.3 },
+        { "word": "metropolis", "start": 8.3, "end": 9.0 },
+        { "word": "stood", "start": 9.0, "end": 9.35 },
+        { "word": "here,", "start": 9.35, "end": 9.75 },
+        { "word": "home", "start": 9.75, "end": 10.05 },
+        { "word": "to", "start": 10.05, "end": 10.18 },
+        { "word": "fifty", "start": 10.18, "end": 10.5 },
+        { "word": "thousand", "start": 10.5, "end": 10.95 },
+        { "word": "people.", "start": 10.95, "end": 11.6 }
+      ]
+    },
+    {
+      "narration": "Then, almost overnight, it was gone.",
+      "start": 11.8,
+      "duration": 2.8,
+      "asset": "frame3.png",
+      "kind": "photo",
+      "words": [
+        { "word": "Then,", "start": 11.85, "end": 12.25 },
+        { "word": "almost", "start": 12.25, "end": 12.7 },
+        { "word": "overnight,", "start": 12.7, "end": 13.4 },
+        { "word": "it", "start": 13.4, "end": 13.55 },
+        { "word": "was", "start": 13.55, "end": 13.8 },
+        { "word": "gone.", "start": 13.8, "end": 14.4 }
+      ]
+    }
+  ]
+}

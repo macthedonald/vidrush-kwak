@@ -1,0 +1,110 @@
+import type { Metadata, Viewport } from 'next'
+import { Inter as FontSans } from 'next/font/google'
+
+import { Analytics } from '@vercel/analytics/next'
+
+import { getCurrentUserId } from '@/lib/auth/get-current-user'
+import { UserProvider } from '@/lib/contexts/user-context'
+import { hasSupabasePublicConfig } from '@/lib/supabase/keys'
+import { createClient } from '@/lib/supabase/server'
+import { cn } from '@/lib/utils'
+
+import { SidebarProvider } from '@/components/ui/sidebar'
+import { Toaster } from '@/components/ui/sonner'
+
+import AppSidebar from '@/components/app-sidebar'
+import ArtifactRoot from '@/components/artifact/artifact-root'
+import Header from '@/components/header'
+import { KeyboardShortcutHandler } from '@/components/keyboard-shortcut-handler'
+import { LibraryProvider } from '@/components/library/library-context'
+import { PostHogProvider } from '@/components/posthog-provider'
+import { ThemeProvider } from '@/components/theme-provider'
+
+import './globals.css'
+
+const fontSans = FontSans({
+  subsets: ['latin'],
+  variable: '--font-sans'
+})
+
+const title = 'Morphic'
+const description =
+  'A fully open-source AI-powered answer engine with a generative UI.'
+
+export const metadata: Metadata = {
+  metadataBase: new URL('https://morphic.sh'),
+  title,
+  description,
+  openGraph: {
+    title,
+    description
+  },
+  twitter: {
+    title,
+    description,
+    card: 'summary_large_image',
+    creator: '@miiura'
+  }
+}
+
+export const viewport: Viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  minimumScale: 1,
+  maximumScale: 1
+}
+
+export default async function RootLayout({
+  children
+}: Readonly<{
+  children: React.ReactNode
+}>) {
+  let user = null
+
+  if (hasSupabasePublicConfig()) {
+    const supabase = await createClient()
+    const {
+      data: { user: supabaseUser }
+    } = await supabase.auth.getUser()
+    user = supabaseUser
+  }
+
+  const userId = user?.id ?? (await getCurrentUserId())
+
+  return (
+    <html lang="en" suppressHydrationWarning>
+      <body
+        className={cn(
+          'fixed inset-0 flex flex-col font-sans antialiased overflow-hidden',
+          fontSans.variable
+        )}
+      >
+        <ThemeProvider
+          attribute="class"
+          defaultTheme="system"
+          enableSystem
+          disableTransitionOnChange
+        >
+          <PostHogProvider userId={user?.id ?? null}>
+            <UserProvider hasUser={!!userId}>
+              <SidebarProvider defaultOpen={false}>
+                <LibraryProvider>
+                  {userId && <AppSidebar />}
+                  <KeyboardShortcutHandler />
+                  <div className="flex flex-col flex-1 min-w-0">
+                    <Header user={user} />
+                    <main className="flex flex-1 min-h-0 min-w-0 overflow-hidden">
+                      <ArtifactRoot>{children}</ArtifactRoot>
+                    </main>
+                  </div>
+                </LibraryProvider>
+              </SidebarProvider>
+            </UserProvider>
+          </PostHogProvider>
+          <Toaster />
+          <Analytics />
+        </ThemeProvider>
+      </body>
+    </html>
+  )
+}
